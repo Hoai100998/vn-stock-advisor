@@ -16,6 +16,7 @@ import { getRankBoard, runRankPortfolio } from './src/ranking.js';
 import { evaluatePredictions } from './src/predictions.js';
 import { startHistorySchedule, listSnapshots } from './src/history.js';
 import { getSectorFlows } from './src/sectors.js';
+import { getChartSeries } from './src/chartdata.js';
 import {
   getWatchlist, addToWatchlist, removeFromWatchlist, scanWatchlist,
   getAlerts, markAlertsRead, startMonitor, runAi, getAiResult, triggerTestAlert,
@@ -55,6 +56,12 @@ const routes = [
     send(res, 200, await analyzeSymbol(sym));
   }],
   ['GET', /^\/api\/market$/, async (req, res) => send(res, 200, await getMarketOverview())],
+  // Biểu đồ theo khung: /api/chart/FPT?tf=D|W|M (nến ngày / tuần / tháng kèm MA20/50/200 của khung đó)
+  ['GET', /^\/api\/chart\/([^/]+)$/, async (req, res, [sym]) => {
+    if (!SYMBOL_RE.test(sym)) return send(res, 400, { error: 'Mã chứng khoán không hợp lệ' });
+    const tf = (new URL(req.url, 'http://localhost').searchParams.get('tf') || 'D').toUpperCase();
+    send(res, 200, await getChartSeries(sym.toUpperCase(), tf));
+  }],
   // Cổ phiếu tiềm năng: trạng thái/kết quả, quét lại toàn bộ, hoặc chỉ chạy lại bước Gemini
   ['GET', /^\/api\/screener$/, async (req, res) => send(res, 200, await getScreener())],
   ['POST', /^\/api\/screener\/run$/, async (req, res) => send(res, 200, await startScreener())],

@@ -824,7 +824,43 @@ function withAlpha(hex, alpha) {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
 
-function renderChart(a) {
+// Khung nến và các phạm vi hiển thị tương ứng (số nến)
+const CHART_TF = {
+  D: { unit: 'phiên', ranges: [['3 Tháng', 66], ['6 Tháng', 132], ['1 Năm', 250], ['Tất cả', 0]], def: 132 },
+  W: { unit: 'tuần', ranges: [['1 Năm', 52], ['2 Năm', 104], ['5 Năm', 260], ['Tất cả', 0]], def: 104 },
+  M: { unit: 'tháng', ranges: [['2 Năm', 24], ['5 Năm', 60], ['10 Năm', 120], ['Tất cả', 0]], def: 60 },
+};
+state.chartTf = 'D';
+state.chartCache = new Map(); // mã:khung -> dữ liệu nến tuần/tháng
+let chartReq = 0;
+
+function renderRangeButtons() {
+  const cfg = CHART_TF[state.chartTf];
+  $('range').innerHTML = cfg.ranges.map(([label, n]) => `<button type="button" data-days="${n}"${n === state.chartDays ? ' class="on"' : ''}>${label}</button>`).join('');
+  document.querySelectorAll('#chart-tf button').forEach((b) => b.classList.toggle('on', b.dataset.tf === state.chartTf));
+}
+
+/** Vẽ biểu đồ theo khung đang chọn: nến ngày lấy từ kết quả phân tích, nến tuần/tháng tải riêng (lịch sử dài hơn). */
+async function renderChart(a) {
+  renderRangeButtons();
+  const tf = state.chartTf;
+  if (tf === 'D') return drawChart(a, a.chart, tf);
+  const key = `${a.symbol}:${tf}`;
+  const req = ++chartReq;
+  if (!state.chartCache.has(key)) {
+    $('chart').innerHTML = '<div class="loading-state" style="border:none;padding:40px"><span>Đang tải nến ' + (tf === 'W' ? 'tuần' : 'tháng') + '…</span></div>';
+    try {
+      state.chartCache.set(key, await api(`/api/chart/${a.symbol}?tf=${tf}`));
+    } catch (err) {
+      if (req === chartReq) $('chart').innerHTML = `<p class="error" style="padding:20px">${esc(err.message)}</p>`;
+      return;
+    }
+  }
+  if (req !== chartReq || state.current?.symbol !== a.symbol || state.chartTf !== tf) return;
+  drawChart(a, state.chartCache.get(key), tf);
+}
+
+function drawChart(a, data, tf) {
   const el = $('chart');
   if (state.chart) {
     state.chart.remove();
@@ -863,13 +899,13 @@ function renderChart(a) {
     wickDownColor: down,
     borderVisible: false,
   });
-  candles.setData(a.chart.bars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
+  candles.setData(data.bars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
 
   const lineOpts = (color) => ({ color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
   const ma = [
-    ['MA20', chart.addLineSeries(lineOpts(css('--s1') || '#38bdf8')), a.chart.sma20],
-    ['MA50', chart.addLineSeries(lineOpts(css('--s2') || '#fb923c')), a.chart.sma50],
-    ['MA200', chart.addLineSeries(lineOpts(css('--s3') || '#a855f7')), a.chart.sma200],
+    ['MA20', chart.addLineSeries(lineOpts(css('--s1') || '#38bdf8')), data.sma20],
+    ['MA50', chart.addLineSeries(lineOpts(css('--s2') || '#fb923c')), data.sma50],
+    ['MA200', chart.addLineSeries(lineOpts(css('--s3') || '#a855f7')), data.sma200],
   ];
   ma.forEach(([, s, data]) => s.setData(data));
 
@@ -881,7 +917,7 @@ function renderChart(a) {
   });
   vol.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
   candles.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: 0.24 } });
-  vol.setData(a.chart.bars.map((b, i, arr) => ({
+  vol.setData(data.bars.map((b, i, arr) => ({
     time: b.time,
     value: b.volume,
     color: withAlpha(i && b.close < arr[i - 1].close ? down : up, 0.4),
@@ -893,24 +929,25 @@ function renderChart(a) {
   }
 
   const legend = $('chart-legend');
-  const barByTime = new Map(a.chart.bars.map((b) => [b.time, b]));
+  const barByTime = new Map(data.bars.map((b) => [b.time, b]));
   const showLegend = (time) => {
-    const b = barByTime.get(time) || a.chart.bars.at(-1);
+    const b = barByTime.get(time) || data.bars.at(-1);
     if (!b) return;
-    const i = a.chart.bars.indexOf(b);
-    const prev = a.chart.bars[i - 1];
+    const i = data.bars.indexOf(b);
+    const prev = data.bars[i - 1];
     const ch = prev ? ((b.close - prev.close) / prev.close) * 100 : 0;
     const maVals = ma.map(([name, , data]) => {
       const p = data.find((d) => d.time === b.time);
       return p ? `${name} <b>${fmt(p.value)}</b>` : '';
     }).filter(Boolean).join(' · ');
-    legend.innerHTML = `${b.time} · Mở <b>${fmt(b.open)}</b> · Cao <b>${fmt(b.high)}</b> · Thấp <b>${fmt(b.low)}</b> · Đóng <b>${fmt(b.close)}</b>
+    legend.innerHTML = `${tf === 'W' ? 'Tuần từ ' : tf === 'M' ? 'Tháng ' : ''}${tf === 'M' ? b.time.slice(0, 7) : b.time} · Mở <b>${fmt(b.open)}</b> · Cao <b>${fmt(b.high)}</b> · Thấp <b>${fmt(b.low)}</b> · Đóng <b>${fmt(b.close)}</b>
       <span class="${dirClass(ch)}">${signed(ch)}%</span> · Khối lượng <b>${fmt(b.volume, 0)}</b>${maVals ? ` · ${maVals}` : ''}`;
   };
   chart.subscribeCrosshairMove((p) => showLegend(p.time));
   showLegend(null);
 
   state.chart = chart;
+  state.chartBars = data.bars.length;
   setRange(state.chartDays);
 }
 
@@ -918,10 +955,19 @@ function setRange(days) {
   state.chartDays = days;
   document.querySelectorAll('#range button').forEach((b) => b.classList.toggle('on', Number(b.dataset.days) === days));
   if (!state.chart || !state.current) return;
-  const n = state.current.chart.bars.length;
+  const n = state.chartBars || 0;
   if (!days || days >= n) state.chart.timeScale().fitContent();
   else state.chart.timeScale().setVisibleLogicalRange({ from: n - days, to: n + 2 });
 }
+
+$('chart-tf')?.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-tf]');
+  if (!b || b.dataset.tf === state.chartTf) return;
+  state.chartTf = b.dataset.tf;
+  state.chartDays = CHART_TF[state.chartTf].def;
+  if (state.current) renderChart(state.current);
+  else renderRangeButtons();
+});
 
 $('range')?.addEventListener('click', (e) => {
   const b = e.target.closest('button');
@@ -1211,7 +1257,10 @@ function renderPicks(s) {
   }
 
   const ai = r.ai && !r.ai.error ? r.ai : null;
-  $('pk-sub').textContent = `Phiên ${r.date.split('-').reverse().join('/')} · quét ${r.scanned} mã · phân tích sâu ${r.shortlisted} mã · `
+  const fn = r.funnel;
+  $('pk-sub').textContent = `Phiên ${r.date.split('-').reverse().join('/')} · quét ${r.scanned} mã`
+    + (fn ? ` → ${fn.liquidity} mã thanh khoản đều ≥ 5 tỷ → ${fn.quality} mã cơ bản tốt → ${fn.trend} mã xu hướng mạnh` : '')
+    + ` · phân tích sâu ${r.shortlisted} mã · `
     + `chọn ${r.candidates.length} mã · ${new Date(r.createdAt).toLocaleString('vi-VN')}`
     + (ai ? ` · Gemini (${ai.model})` : '');
 
@@ -1277,6 +1326,9 @@ function pickCard(c, p, rank) {
       </div>
       ${p?.trigger ? `<div class="pk-line"><b>Điều kiện mua:</b> ${esc(p.trigger)}</div>` : ''}
       ${p?.mainRisk ? `<div class="pk-line"><b>Rủi ro:</b> ${esc(p.mainRisk)}</div>` : ''}
+      ${c.quality ? `<div class="pk-quality"><b>Vì sao là cổ ngon</b> ${c.quality.score != null ? `<span class="muted small">· chất lượng ${c.quality.score}/100${c.combined != null ? ` · điểm chung ${c.combined}` : ''}</span>` : ''}
+        <ul>${c.quality.checks.map((k) => `<li class="${k.ok ? 'up' : 'down'}">${k.ok ? '✓' : '✕'} ${esc(k.label)}</li>`).join('')}
+        ${c.liquidity ? `<li class="${c.liquidity.pass ? 'up' : 'down'}">${c.liquidity.pass ? '✓' : '✕'} Thanh khoản TB ${fmt(c.liquidity.avg / 1e9, 1)} tỷ/phiên, ${c.liquidity.okDays}/${c.liquidity.days} phiên ≥ 5 tỷ (phiên gần nhất ${fmt(c.liquidity.last / 1e9, 1)} tỷ)</li>` : ''}</ul></div>` : ''}
       <div class="pk-stats">
         <span>Điểm HT ${signed(c.total, 0)}</span>
         ${c.ranking ? `<span title="Điểm xếp hạng 4 yếu tố (0–100)">Xếp hạng ${c.ranking.score}</span>` : ''}

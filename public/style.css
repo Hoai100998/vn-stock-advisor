@@ -1485,6 +1485,7 @@ input:focus {
 .sw.vol { background: var(--vol); height: 8px; width: 6px; }
 
 /* Segmented Control */
+.chart-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .seg {
   display: inline-flex;
   background: var(--surface-2);
@@ -2502,6 +2503,9 @@ body.focus-mode .detail-only { display: none !important; }
 .cap-k { color: var(--ink-2); }
 @media (max-width: 560px) { .cap-rows { grid-template-columns: 1fr; } .cap-k { font-weight: 700; margin-top: 4px; } }
 .st-table td { white-space: normal; vertical-align: top; }
+.pk-quality { font-size: 12.5px; background: var(--surface-2); border-radius: var(--radius-sm); padding: 6px 10px; }
+.pk-quality ul { margin: 4px 0 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.pk-quality li { font-family: var(--font-sans); }
 .st-table .st-n { color: var(--muted); width: 18px; }
 .st-table .st-zone { white-space: nowrap; font-weight: 700; }
 .st-table .st-cond { font-family: var(--font-sans); font-size: 12.5px; color: var(--ink-2); min-width: 180px; }

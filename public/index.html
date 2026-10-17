@@ -355,9 +355,11 @@
           </div>
           <div id="pk-market" class="pk-market"></div>
           <p class="muted small pk-method">
-            Cách chọn: quét mọi mã <b>sàn HOSE</b> có giá trị giao dịch trung bình 20 phiên ≥ 5 tỷ/phiên → giữ các mã có
-            <b>điểm xếp hạng 4 yếu tố ≥ 70 và giá trên MA200</b> (nhóm duy nhất thắng VN-Index ổn định trong 4 năm kiểm chứng) →
-            phân tích sâu kèm tin tức, loại mã có tin rủi ro hoặc đang lỗ → Gemini đánh giá từng mã. Đây là sàng lọc theo dữ liệu, <b>không phải dự báo chắc chắn</b>.
+            Cách chọn: quét mọi mã <b>sàn HOSE</b> → (1) <b>thanh khoản đều ≥ 5 tỷ/ngày</b>: trung bình 20 phiên ≥ 5 tỷ và ít nhất 16/20 phiên đạt 5 tỷ →
+            (2) <b>cổ ngon</b>: đang có lãi, ROE ≥ 12%, lợi nhuận 4 quý không giảm, P/E ≤ 25, nợ vay/vốn chủ ≤ 1,5 (trừ ngân hàng, chứng khoán, bảo hiểm) →
+            (3) <b>xu hướng mạnh</b>: điểm xếp hạng 4 yếu tố ≥ 70 và giá trên MA200 → xếp theo nửa điểm xu hướng + nửa điểm chất lượng →
+            phân tích sâu kèm tin tức, loại mã có tin rủi ro → Gemini đánh giá từng mã. Đây là sàng lọc theo dữ liệu, <b>không phải dự báo chắc chắn</b>;
+            tiêu chí "cổ ngon" dùng số liệu BCTC hiện tại, chưa backtest được vì thiếu dữ liệu tài chính lịch sử.
           </p>
         </section>
         <div id="pk-list" class="pk-list"></div>
@@ -683,11 +685,13 @@
                   <span class="key-item"><i class="sw vol"></i>Khối lượng</span>
                 </div>
               </div>
-              <div class="seg" id="range">
-                <button data-days="66">3 Tháng</button>
-                <button data-days="132" class="on">6 Tháng</button>
-                <button data-days="250">1 Năm</button>
-                <button data-days="0">Tất cả</button>
+              <div class="chart-controls">
+                <div class="seg" id="chart-tf" role="group" aria-label="Khung nến">
+                  <button type="button" data-tf="D" class="on">Ngày</button>
+                  <button type="button" data-tf="W">Tuần</button>
+                  <button type="button" data-tf="M">Tháng</button>
+                </div>
+                <div class="seg" id="range" role="group" aria-label="Phạm vi hiển thị"></div>
               </div>
             </div>
             <div class="legend" id="chart-legend"></div>

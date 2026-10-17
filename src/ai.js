@@ -324,8 +324,10 @@ const PICK_SYSTEM = `Bạn là chuyên viên phân tích chứng khoán Việt N
 Nhiệm vụ: từ danh sách cổ phiếu đã được bộ lọc định lượng chọn ra, đánh giá mã nào thực sự đáng mua trong 1-3 tháng tới.
 Nguyên tắc:
 - Chỉ dùng dữ liệu được cung cấp, không bịa số liệu hay tin tức. Không hứa hẹn lợi nhuận.
-- Các mã đều đã qua lọc định lượng: điểm xếp hạng 4 yếu tố ≥ 70 và giá trên MA200 (nhóm duy nhất thắng VN-Index ổn định trong
-  lịch sử). Nhiệm vụ của bạn là loại mã có rủi ro cơ bản/tin tức, định giá quá đắt hoặc đang tăng quá nóng.
+- Các mã đều đã qua lọc: điểm xếp hạng 4 yếu tố ≥ 70 và giá trên MA200; thanh khoản đều (giá trị khớp lệnh ≥ 5 tỷ
+  ở ít nhất 16/20 phiên); doanh nghiệp "ngon" (có lãi, ROE ≥ 12%, lợi nhuận 4 quý không giảm, P/E ≤ 25, nợ vay/vốn chủ ≤ 1,5
+  trừ ngân hàng/chứng khoán/bảo hiểm). Nhiệm vụ của bạn là loại mã có rủi ro tin tức, chất lượng lợi nhuận đáng ngờ
+  (tăng trưởng đột biến một lần), định giá quá đắt so với tăng trưởng hoặc đang tăng quá nóng.
 - Ưu tiên mã có nhiều nhóm tín hiệu cùng chiều (xu hướng, động lượng, dòng tiền, khối ngoại, cơ bản, tin tức).
 - Thị trường chung xấu thì hạ mức quyết định (MUA → MUA_THAM_DO hoặc CHO_DIEM_MUA) và nói rõ.
 - Mã đã tăng nóng (RSI > 70, xa MA20) thì chọn CHO_DIEM_MUA với vùng mua thấp hơn giá hiện tại.
@@ -344,7 +346,9 @@ function pickPrompt(cands, marketFlow, market) {
   for (const c of cands) {
     const i = c.indicators, f = c.fundamentals || {};
     L.push(`\n## ${c.symbol} - ${c.name} (${c.exchange}) giá ${c.close} (${c.changePct}% hôm nay)`);
-    L.push(`Điểm xếp hạng 4 yếu tố: ${c.ranking?.score ?? 'n/a'} (hạng ${c.ranking?.position ?? '?'}/${c.ranking?.universe ?? '?'})`);
+    L.push(`Điểm xếp hạng 4 yếu tố: ${c.ranking?.score ?? 'n/a'} (hạng ${c.ranking?.position ?? '?'}/${c.ranking?.universe ?? '?'}); điểm chất lượng doanh nghiệp ${c.quality?.score ?? 'n/a'}/100`);
+    if (c.liquidity) L.push(`Thanh khoản: TB 20 phiên ${(c.liquidity.avg / 1e9).toFixed(1)} tỷ, ${c.liquidity.okDays}/${c.liquidity.days} phiên ≥ 5 tỷ, phiên gần nhất ${(c.liquidity.last / 1e9).toFixed(1)} tỷ`);
+    if (c.fundamentals?.debtToEquity != null) L.push(`Nợ vay/vốn chủ ${c.fundamentals.debtToEquity.toFixed(2)}; LN quý gần nhất so cùng kỳ ${c.fundamentals.profitGrowthQoQYoY != null ? (c.fundamentals.profitGrowthQoQYoY * 100).toFixed(0) + '%' : 'n/a'}`);
     L.push(`Setup: ${c.setups.map((s) => s.label).join(', ') || 'không'}; điểm kiểu cũ (chỉ tham khảo): tổng ${c.total}, kỹ thuật ${c.scores.technical}, cơ bản ${c.scores.fundamental ?? 'n/a'}, tin ${c.scores.news ?? 'n/a'}`);
     L.push(`MA20 ${i.sma20}, MA50 ${i.sma50}, MA200 ${i.sma200}; RSI ${i.rsi14}; MACD hist ${i.macdHist}; ADX ${i.adx14} (+DI ${i.plusDI}/−DI ${i.minusDI}); Stoch ${i.stochK}; MFI ${i.mfi14}; OBV ${i.obvTrend}; RS 20 phiên so với VN-Index ${i.rs20}; hiệu suất 20/60 phiên ${i.return20d}%/${i.return60d}%`);
     L.push(`P/E ${f.pe?.toFixed?.(1) ?? 'n/a'}, P/B ${f.pb?.toFixed?.(2) ?? 'n/a'}, ROE ${f.roe != null ? (f.roe * 100).toFixed(1) + '%' : 'n/a'}, LN 4Q ${f.profitGrowthTTM != null ? (f.profitGrowthTTM * 100).toFixed(0) + '%' : 'n/a'}, DT 4Q ${f.revenueGrowthTTM != null ? (f.revenueGrowthTTM * 100).toFixed(0) + '%' : 'n/a'}`);

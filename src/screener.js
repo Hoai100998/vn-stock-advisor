@@ -1,5 +1,6 @@
 // Bộ lọc cổ phiếu tiềm năng, quét toàn thị trường theo 3 bước:
 //  1. Lọc nhanh mọi mã đạt tiêu chí sàn + thanh khoản (mặc định HOSE, ≥ 5 tỷ/phiên): chấm kỹ thuật + cơ bản + khối ngoại, nhận diện setup.
+//     Bắt buộc: thanh khoản ĐỀU (TB 20 phiên ≥ ngưỡng và ≥ 16/20 phiên đạt ngưỡng) và "cổ ngon" (qualityCheck).
 //  2. Phân tích đầy đủ (có tin tức) nhóm dẫn đầu, loại mã có tin rủi ro hoặc bị chấm tiêu cực.
 //  3. Gemini đánh giá và xếp hạng danh sách cuối trong một lần gọi.
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
@@ -10,6 +11,54 @@ import { technicalAnalysis, fundamentalAnalysis, marketContext, analyzeSymbol } 
 import { aiPickStocks } from './ai.js';
 import { rankSymbol } from './ranking.js';
 import { recordMany } from './predictions.js';
+import { getSectorFlows } from './sectors.js';
+
+// ---------- Tiêu chí "cổ ngon" (cơ bản doanh nghiệp) và thanh khoản đều ----------
+export const QUALITY_RULES = { minRoe: 0.12, minProfitGrowth: 0, maxPe: 25, maxDebtToEquity: 1.5 };
+export const LIQUIDITY_RULES = { days: 20, minDays: 16 };
+const FINANCIAL = /ngân hàng|chứng khoán|bảo hiểm|tài chính/i;
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+
+/**
+ * Kiểm tra doanh nghiệp có "ngon" không. Thiếu dữ liệu thì không đạt (không xác minh được).
+ * Nợ vay/vốn chủ không áp dụng cho ngân hàng, chứng khoán, bảo hiểm (mô hình kinh doanh dùng đòn bẩy).
+ * @returns {{ pass: boolean, score: number|null, checks: {label: string, ok: boolean}[], failed: string[] }}
+ */
+export function qualityCheck(f, sectorName = '') {
+  const R = QUALITY_RULES;
+  const pc = (v, d = 0) => `${(v * 100).toFixed(d)}%`;
+  if (!f) return { pass: false, score: null, checks: [{ ok: false, label: 'Chưa có dữ liệu tài chính' }], failed: ['Chưa có dữ liệu tài chính'] };
+  const checks = [];
+  const add = (ok, label) => checks.push({ ok, label });
+  const fin = FINANCIAL.test(sectorName);
+  add(f.epsTTM != null && f.epsTTM > 0, f.epsTTM == null ? 'Chưa có EPS' : f.epsTTM > 0 ? 'Đang có lãi (EPS 4 quý dương)' : 'Đang lỗ 4 quý gần nhất');
+  add(f.roe != null && f.roe >= R.minRoe, f.roe == null ? 'Chưa có ROE' : `ROE ${pc(f.roe, 1)} ${f.roe >= R.minRoe ? '≥' : '<'} ${pc(R.minRoe)}`);
+  add(f.profitGrowthTTM != null && f.profitGrowthTTM >= R.minProfitGrowth,
+    f.profitGrowthTTM == null ? 'Chưa có tăng trưởng lợi nhuận' : `Lợi nhuận 4 quý ${f.profitGrowthTTM >= 0 ? 'tăng' : 'giảm'} ${pc(Math.abs(f.profitGrowthTTM))}`);
+  add(f.pe != null && f.pe > 0 && f.pe <= R.maxPe, f.pe == null || f.pe <= 0 ? 'Chưa có P/E' : `P/E ${f.pe.toFixed(1)} ${f.pe <= R.maxPe ? '≤' : '>'} ${R.maxPe}`);
+  if (!fin) {
+    add(f.debtToEquity == null || f.debtToEquity <= R.maxDebtToEquity,
+      f.debtToEquity == null ? 'Nợ vay/vốn chủ: không có dữ liệu' : `Nợ vay/vốn chủ ${f.debtToEquity.toFixed(2)} ${f.debtToEquity <= R.maxDebtToEquity ? '≤' : '>'} ${R.maxDebtToEquity}`);
+  }
+  const failed = checks.filter((c) => !c.ok).map((c) => c.label);
+  // Điểm chất lượng 0–100 để xếp hạng giữa các mã đã đạt
+  const parts = [];
+  if (f.roe != null) parts.push(clamp01((f.roe - R.minRoe) / (0.25 - R.minRoe)));
+  if (f.profitGrowthTTM != null) parts.push(clamp01(f.profitGrowthTTM / 0.3));
+  if (f.revenueGrowthTTM != null) parts.push(clamp01((f.revenueGrowthTTM + 0.05) / 0.25));
+  if (f.pe != null && f.pe > 0) parts.push(clamp01((R.maxPe - f.pe) / (R.maxPe - 8)));
+  if (!fin && f.debtToEquity != null) parts.push(clamp01((R.maxDebtToEquity - f.debtToEquity) / R.maxDebtToEquity));
+  const score = parts.length ? Math.round((parts.reduce((a, b) => a + b, 0) / parts.length) * 100) : null;
+  return { pass: failed.length === 0, score, checks, failed };
+}
+
+/** Thanh khoản đều: TB N phiên ≥ ngưỡng và ít nhất minDays phiên có giá trị khớp lệnh ≥ ngưỡng (đồng). */
+export function liquidityCheck(bars, minValue, { days = LIQUIDITY_RULES.days, minDays = LIQUIDITY_RULES.minDays } = {}) {
+  const values = bars.slice(-days).map((b) => b.close * b.volume * 1000);
+  const avg = values.reduce((a, b) => a + b, 0) / (values.length || 1);
+  const okDays = values.filter((v) => v >= minValue).length;
+  return { pass: avg >= minValue && okDays >= minDays, avg, okDays, days: values.length, last: values.at(-1) ?? 0, minDays };
+}
 
 const PICK_DIRECTION = { MUA: 1, MUA_THAM_DO: 1, CHO_DIEM_MUA: 0, LOAI: -1 };
 
@@ -72,6 +121,8 @@ async function quickScan(item, ctx) {
   const i = tech.indicators;
   const avgValue20 = i.avgVolume20 * close * 1000;
   if (avgValue20 < screenCriteria().minValue) return null;
+  const liquidity = liquidityCheck(bars, screenCriteria().minValue);
+  const quality = qualityCheck(fund, ctx.sectorOf?.get(item.symbol) || '');
 
   const setups = detectSetups({ close, changePct, i, plan: tech.plan, faScore: fa.score ?? 0, flow: tech.flow });
   // Tiêu chí chính: điểm xếp hạng 4 yếu tố (đã kiểm chứng). Chỉ nhóm ≥ 70 và trên MA200 thắng VN-Index ổn định,
@@ -82,6 +133,9 @@ async function quickScan(item, ctx) {
     symbol: item.symbol, exchange: item.exchange, close, changePct,
     quick: Math.round(quick), technical: tech.score, fundamental: fa.score, setups, avgValue20,
     rankScore: rank?.score ?? null, aboveMa200: rank?.aboveMa200 ?? null,
+    liquidity, quality,
+    // Xếp hạng chung: nửa điểm xu hướng (xếp hạng 4 yếu tố) + nửa điểm chất lượng doanh nghiệp
+    combined: quick != null && quality.score != null ? Math.round((quick + quality.score) / 2) : null,
   };
 }
 
@@ -108,7 +162,10 @@ async function run() {
   const { bars: indexBars } = await getPriceHistory('VNINDEX');
   const date = indexBars.at(-1).time;
   const market = await marketContext().catch(() => null);
-  const ctx = { indexBars, market };
+  const flows = await getSectorFlows(5).catch(() => null);
+  const sectorOf = new Map();
+  for (const s of flows?.sectors || []) for (const x of s.stocks) sectorOf.set(x.symbol, s.name);
+  const ctx = { indexBars, market, sectorOf };
 
   // Bước 1
   const uni = await universe();
@@ -116,9 +173,17 @@ async function run() {
   const scanned = await pool(uni, (it) => quickScan(it, ctx), () => state.progress.done++);
 
   // Bước 2
+  // Bắt buộc: thanh khoản đều + cổ ngon + xu hướng (điểm xếp hạng ≥ 70, trên MA200); xếp theo điểm chung
+  const trendOk = (c) => c.quick != null && c.quick >= 70 && c.aboveMa200 !== false;
+  const funnel = {
+    scanned: scanned.length,
+    liquidity: scanned.filter((c) => c.liquidity.pass).length,
+    quality: scanned.filter((c) => c.liquidity.pass && c.quality.pass).length,
+    trend: scanned.filter((c) => c.liquidity.pass && c.quality.pass && trendOk(c)).length,
+  };
   const shortlist = scanned
-    .filter((c) => c.quick != null && c.quick >= 70 && c.aboveMa200 !== false)
-    .sort((a, b) => b.quick - a.quick)
+    .filter((c) => c.liquidity.pass && c.quality.pass && trendOk(c))
+    .sort((a, b) => b.combined - a.combined)
     .slice(0, STAGE2_SIZE);
   state.progress = { stage: 2, label: 'Phân tích sâu nhóm dẫn đầu (kèm tin tức)', done: 0, total: shortlist.length };
   let marketFlow = null;
@@ -131,6 +196,7 @@ async function run() {
       symbol: a.symbol, name: a.info.name, exchange: a.info.exchange,
       close: a.price.close, changePct: a.price.changePct, date: a.price.date,
       setups: c.setups, quick: c.quick, avgValue20: c.avgValue20,
+      liquidity: c.liquidity, quality: qualityCheck(a.fundamental.data, a.sector?.name || ''), combined: c.combined,
       total: a.total, scores: a.scores, recommendation: a.recommendation,
       indicators: a.technical.indicators, fundamentals: a.fundamental.data,
       foreign: a.foreign ? { net1: a.foreign.net1, net5: a.foreign.net5, net20: a.foreign.net20, buyDays5: a.foreign.buyDays5 } : null,
@@ -142,7 +208,8 @@ async function run() {
   }, () => state.progress.done++);
 
   const final = detailed
-    .sort((a, b) => (b.ranking?.score ?? 0) - (a.ranking?.score ?? 0))
+    .filter((c) => c.quality.pass)
+    .sort((a, b) => (b.combined ?? 0) - (a.combined ?? 0))
     .slice(0, FINAL_SIZE);
 
   // Bước 3
@@ -167,7 +234,8 @@ async function run() {
 
   return {
     date, createdAt: new Date().toISOString(), durationMs: Date.now() - started,
-    criteria: screenCriteria(), universe: uni.length, scanned: scanned.length, shortlisted: shortlist.length,
+    criteria: screenCriteria(), quality: QUALITY_RULES, liquidityRule: LIQUIDITY_RULES, funnel,
+    universe: uni.length, scanned: scanned.length, shortlisted: shortlist.length,
     market, marketFlow, setupCounts, candidates: final, ai,
   };
 }
