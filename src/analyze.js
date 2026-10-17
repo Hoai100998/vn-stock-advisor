@@ -384,16 +384,19 @@ export function fundamentalAnalysis(f) {
 }
 
 export async function marketContext() {
-  const { bars } = await getPriceHistory('VNINDEX', 200);
+  const { bars } = await getPriceHistory('VNINDEX', 550);
   const closes = bars.map((b) => b.close);
   const s50 = last(sma(closes, 50));
   const s20 = last(sma(closes, 20));
+  const s200 = last(sma(closes, 200));
   const close = last(closes);
   const prev = closes[closes.length - 2];
   const trend = close > s50 && s20 > s50 ? 'up' : close < s50 && s20 < s50 ? 'down' : 'sideways';
   return {
     close, change: round(close - prev), changePct: round(((close - prev) / prev) * 100),
     date: last(bars).time, trend,
+    ma50: round(s50), ma200: round(s200), aboveMa200: s200 != null ? close > s200 : null,
+    return20d: round(pctChange(closes, 20), 1),
   };
 }
 
@@ -571,7 +574,7 @@ export async function analyzeSymbol(symbol, { withChart = true } = {}) {
     // Nạp khi cần để tránh vòng lặp import analyze → portfolio → backtest → analyze
     const { getHolding } = await import('./portfolio.js');
     result.holding = await getHolding(symbol, lastBar.close).catch(() => null);
-    result.brief = buildBrief(result, result.sector, result.holding);
+    result.brief = buildBrief(result, result.sector, result.holding, bars);
   }
 
   if (withChart) {

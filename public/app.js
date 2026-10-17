@@ -1147,7 +1147,7 @@ async function loadAi(a) {
     `;
   }
   // Tự chạy Gemini khi chưa có kết quả cho mức giá hiện tại (mỗi mã/phiên/giá chỉ tự chạy 1 lần)
-  const fresh = saved && saved.priceDate === a.price.date && saved.price === a.price.close;
+  const fresh = saved && saved.priceDate === a.price.date && saved.price === a.price.close && saved.final;
   const key = `${a.symbol}:${a.price.date}:${a.price.close}`;
   if (!fresh && !state.aiAuto.has(key)) {
     state.aiAuto.add(key);
@@ -1199,6 +1199,7 @@ const RULE_DIR = { BUY: 1, ACCUMULATE: 1, HOLD: 0, AVOID: -1, SELL: -1 };
 function applyAiToDecision(a, ai) {
   state.aiResult = ai && ai.symbol === a.symbol ? ai : null;
   ai = state.aiResult;
+  if (state.current?.symbol === a.symbol) renderBrief(a);
   const st = $('dc-ai-status');
   if (st) {
     if (a.isIndex) st.innerHTML = '';
@@ -2144,17 +2145,91 @@ $('rank-btn')?.addEventListener('click', showRankView);
 const BRIEF_ICON = { up: '▲', down: '▼', ref: '•' };
 
 function briefText(a) {
-  const b = a.brief, l = b.levels;
+  const b = { ...a.brief, ...(() => { const e = effectiveBrief(a); return { verdict: e.verdict, action: e.action, steps: e.steps, fin: e.fin }; })() }, l = b.levels;
   const lines = [`${a.symbol} — ${b.verdict} (${b.headline}) · giá ${fmt(a.price.close)} ngày ${a.price.date}`, `→ ${b.action}`];
-  if (b.plays) {
-    lines.push('Nếu CHƯA có cổ phiếu:', ...b.plays.newBuyer.map((x) => `  - ${x}`));
-    lines.push(`Nếu ĐANG nắm giữ:${b.plays.position ? ` (${b.plays.position})` : ''}`, ...b.plays.holder.map((x) => `  - ${x}`));
+  if (b.fin) {
+    lines.push(`AI thẩm định: ${b.fin.note}`);
+    for (const c of b.fin.marketChecks) lines.push(`  ${CHECK_ICON[c.status][0]} ${c.label}: ${c.note}`);
+  }
+  const stepLine = (x) => `  - [${SIDE[x.side][0]}] ${x.zone ? `${fmt(x.zone[0])}–${fmt(x.zone[1])}` : x.price != null ? fmt(x.price) : ''}${x.portion ? ` · ${Math.round(x.portion * 100)}% vốn` : ''}${x.shares != null ? ` · ${x.shares} cp` : ''} · ${x.condition}`;
+  if (b.steps) {
+    lines.push('Nếu CHƯA có cổ phiếu:', ...b.steps.fresh.map(stepLine));
+    lines.push(`Nếu ĐANG nắm giữ:${b.plays?.position ? ` (${b.plays.position})` : ''}`, ...b.steps.hold.map(stepLine));
   }
   lines.push('Vì sao:');
   for (const r of b.reasons) lines.push(`${BRIEF_ICON[r.tone]} ${r.text}`);
-  if (l) lines.push(`Vùng mua ${fmt(l.buyFrom)}–${fmt(l.buyTo)} · cắt lỗ ${fmt(l.stop)} (${pct(l.stopPct)}) · mục tiêu ${fmt(l.target)} (${pct(l.targetPct)})`);
+  if (l) lines.push(`Bậc thang giá: KC2 ${fmt(l.r2)} · KC1 ${fmt(l.r1)} · giá ${fmt(l.close)} · HT1 ${fmt(l.s1)}${l.s2 != null ? ` · HT2 ${fmt(l.s2)}` : ''} · cắt lỗ ${fmt(l.stop)}`);
   if (b.risks.length) lines.push(`Rủi ro: ${b.risks.join('; ')}`);
   return lines.join('\n');
+}
+
+// Vốn dùng để quy đổi tỷ trọng ra số cổ phiếu (lưu trên trình duyệt này)
+const capitalM = () => { try { return Number(localStorage.getItem('vnstock_capital')) || 0; } catch { return 0; } };
+const SIDE = { buy: ['Mua', 'up'], sell: ['Bán', 'down'], stop: ['Cắt lỗ', 'down'], wait: ['Chờ', 'ref'] };
+
+function stepRows(steps, { fresh, close }) {
+  const cap = capitalM() * 1e6;
+  let n = 0;
+  return steps.map((x) => {
+    const [label, tone] = SIDE[x.side];
+    const zone = x.zone ? `${fmt(x.zone[0])}–${fmt(x.zone[1])}` : x.price != null ? fmt(x.price) : '–';
+    const ref = x.zone ? (x.zone[0] + x.zone[1]) / 2 : x.price;
+    const diff = ref ? ` <span class="muted small">${pct((ref - close) / close)}</span>` : '';
+    let qty = '';
+    if (x.shares != null) qty = `${x.shares.toLocaleString('vi-VN')} cp`;
+    else if (fresh && x.side === 'buy' && cap && ref) {
+      const sh = Math.floor((cap * x.portion) / (ref * 1000) / 100) * 100;
+      qty = sh > 0 ? `${sh.toLocaleString('vi-VN')} cp` : '< 1 lô';
+    }
+    const weight = x.portion ? `${Math.round(x.portion * 100)}% vốn` : x.portionOfHolding ? `${Math.round(x.portionOfHolding * 100)}% đang giữ` : '';
+    const num = x.side === 'buy' || x.side === 'sell' ? ++n : '';
+    return `<tr class="st-${x.side}"><td class="st-n">${num}</td><td><span class="st-badge ${tone}">${label}</span></td>
+      <td class="st-zone">${zone}${diff}</td><td>${weight}</td><td>${qty}</td><td class="st-cond">${esc(x.condition)}</td></tr>`;
+  }).join('');
+}
+
+function ladder(l) {
+  const rows = [
+    ['Kháng cự 2 / mục tiêu 2', l.r2, 'up'], ['Kháng cự 1 / mục tiêu 1', l.r1, 'up'], ['Giá hiện tại', l.close, 'now'],
+    ['Hỗ trợ 1', l.s1, ''], ['Hỗ trợ 2', l.s2, ''], ['Cắt lỗ', l.stop, 'down'],
+  ].filter((r) => r[1] != null);
+  return `<div class="ld">${rows.map(([k, v, cls]) => `<div class="ld-row ${cls}"><span>${k}</span><b>${fmt(v)}</b><span class="muted small">${cls === 'now' ? '' : pct((v - l.close) / l.close)}</span></div>`).join('')}
+    ${l.weight != null ? `<div class="ld-note">Tỷ trọng tối đa <b>${Math.round(l.weight * 100)}% vốn</b> (chạm cắt lỗ chỉ mất ~1% tổng vốn)${l.riskReward ? ` · lời/lỗ đến ${l.targetLabel || "mục tiêu"}: <b>${fmt(l.riskReward, 1)} lần</b>` : ''}</div>` : ''}</div>`;
+}
+
+const CHECK_ICON = { TOT: ['✓', 'up'], TRUNG_TINH: ['•', 'ref'], XAU: ['✕', 'down'] };
+
+function effectiveBrief(a) {
+  const b = a.brief;
+  const ai = state.aiResult?.symbol === a.symbol ? state.aiResult : null;
+  const fin = ai?.final && ai.final.priceDate === a.price.date ? ai.final : null;
+  if (!fin) return { verdict: b.verdict, tone: b.tone, action: b.action, steps: b.steps, fin: null, ai };
+  return { verdict: fin.label, tone: fin.tone, action: fin.action, steps: fin.steps, fin, ai };
+}
+
+function aiReviewBlock(a, eff) {
+  const fin = eff.fin;
+  let status;
+  if (fin) {
+    const cls = fin.relation === 'stricter' ? 'down' : fin.relation === 'looser' ? 'ref' : 'up';
+    const icon = fin.relation === 'stricter' ? '⚠' : fin.relation === 'looser' ? 'ℹ' : '✓';
+    status = `<div class="bf-ai ${cls}"><b>${icon} AI đã thẩm định theo yếu tố thị trường:</b> ${esc(fin.note)}
+      <span class="muted small">· ${esc(eff.ai.model)} · ${new Date(eff.ai.createdAt).toLocaleTimeString('vi-VN')}</span>
+      <button type="button" class="btn btn-glass btn-xs" data-bf="rerun">Thẩm định lại</button></div>`;
+  } else if (!state.ai.enabled) {
+    status = '<div class="bf-ai ref">Chưa bật AI: quyết định chỉ dựa trên tín hiệu định lượng. Thêm API key trong .env để AI thẩm định theo yếu tố thị trường.</div>';
+  } else if (state.aiRunning === a.symbol) {
+    status = '<div class="bf-ai ref"><span class="mini-spin"></span> AI đang thẩm định theo 6 yếu tố thị trường (VN-Index, độ rộng, khối ngoại, ngành, tin tức, cơ bản)… Tạm hiển thị khuyến nghị định lượng, <b>chưa nên hành động</b> trước khi có kết quả.</div>';
+  } else if (state.aiError?.symbol === a.symbol) {
+    status = `<div class="bf-ai down">⚠ AI chưa thẩm định được (${esc(state.aiError.message)}). Quyết định hiện chỉ dựa trên định lượng, cần thận trọng. <button type="button" class="btn btn-glass btn-xs" data-bf="rerun">Thử lại</button></div>`;
+  } else {
+    status = '<div class="bf-ai ref">AI chưa thẩm định phiên này. <button type="button" class="btn btn-glass btn-xs" data-bf="rerun">Thẩm định ngay</button></div>';
+  }
+  const checks = fin?.marketChecks?.length ? `<div class="bf-checks">${fin.marketChecks.map((c) => {
+    const [ic, tone] = CHECK_ICON[c.status];
+    return `<div class="bf-check" data-tone="${tone}"><span class="bf-ic" aria-hidden="true">${ic}</span><b>${esc(c.label)}</b><span>${esc(c.note)}</span></div>`;
+  }).join('')}</div>` : '';
+  return status + checks;
 }
 
 function renderBrief(a) {
@@ -2162,44 +2237,52 @@ function renderBrief(a) {
   const b = a.brief;
   el.hidden = !b;
   if (!b) return;
-  const l = b.levels;
-  const buying = b.code === 'BUY' || b.code === 'ACCUMULATE';
-  const lv = (k, v, sub = '', cls = '') => `<div class="bf-lv"><div class="k">${k}</div><div class="v ${cls}">${v}</div>${sub ? `<div class="p">${sub}</div>` : ''}</div>`;
-  const levels = l ? [
-    buying ? lv('Vùng mua', `${fmt(l.buyFrom)}–${fmt(l.buyTo)}`) : lv('Vùng theo dõi', `${fmt(l.buyFrom)}–${fmt(l.buyTo)}`),
-    lv(buying ? 'Cắt lỗ' : 'Ngưỡng phải giữ', fmt(l.stop), pct(l.stopPct), 'down'),
-    lv('Mục tiêu', fmt(l.target), pct(l.targetPct), 'up'),
-    buying ? lv('Tỷ trọng tối đa', l.weight != null ? `${Math.round(l.weight * 100)}% vốn` : '–', 'rủi ro 1% vốn') : lv('Lời / Lỗ', `${fmt(l.riskReward, 1)} lần`),
-  ].join('') : '';
-  el.className = `card brief-card tone-${b.tone}`;
+  const eff = effectiveBrief(a);
+  const l = b.levels, st = eff.steps;
+  const cap = capitalM();
+  const table = (steps, fresh) => `<table class="tbl st-table"><thead><tr><th>#</th><th></th><th>Vùng giá</th><th>Tỷ trọng</th><th>Số cp</th><th>Điều kiện</th></tr></thead>
+    <tbody>${stepRows(steps, { fresh, close: a.price.close })}</tbody></table>`;
+  el.className = `card brief-card tone-${eff.tone}`;
   el.innerHTML = `
     <div class="bf-top">
-      <div class="bf-verdict ${b.tone}">${BRIEF_ICON[b.tone]} ${esc(b.verdict)}</div>
+      <div class="bf-verdict ${eff.tone}">${BRIEF_ICON[eff.tone]} ${esc(eff.verdict)}</div>
       <div class="bf-main">
-        <div class="bf-action">${esc(b.action)}</div>
+        <div class="bf-action">${esc(eff.action)}</div>
         <div class="muted small">${esc(b.headline)} · giá ${fmt(a.price.close)} (${signed(a.price.changePct)}%) · phiên ${a.price.date}</div>
       </div>
-      <button type="button" class="btn btn-glass btn-xs" id="bf-copy" title="Sao chép tóm tắt để gửi nhanh">📋 Sao chép</button>
+      <label class="bf-cap" title="Tổng vốn đầu tư để tính số cổ phiếu mỗi lần mua (lưu trên trình duyệt này)">Vốn của bạn
+        <input id="bf-capital" type="number" min="0" step="10" value="${cap || ''}" placeholder="vd 500"> triệu</label>
+      <button type="button" class="btn btn-glass btn-xs" id="bf-copy" title="Sao chép kế hoạch để gửi nhanh">📋 Sao chép</button>
     </div>
-    ${b.plays ? `<div class="bf-plays">
+    ${aiReviewBlock(a, eff)}
+    ${st ? `<div class="bf-plays">
       <div class="bf-play${b.holding ? '' : ' mine'}">
         <h4>🆕 Nếu chưa có cổ phiếu${b.holding ? '' : ' <span class="bf-you">trường hợp của bạn</span>'}</h4>
-        <ol>${b.plays.newBuyer.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>
+        <div class="tbl-wrap">${table(st.fresh, true)}</div>
+        ${!cap && st.fresh.some((x) => x.side === 'buy') ? '<div class="muted small">Nhập "Vốn của bạn" ở trên để xem số cổ phiếu mỗi lần mua.</div>' : ''}
       </div>
       <div class="bf-play${b.holding ? ' mine' : ''}">
         <h4>💼 Nếu đang nắm giữ${b.holding ? ' <span class="bf-you">trường hợp của bạn</span>' : ''}</h4>
-        ${b.plays.position ? `<div class="bf-pos">${esc(b.plays.position)}</div>` : ''}
-        <ol>${b.plays.holder.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>
+        ${b.plays?.position ? `<div class="bf-pos">${esc(b.plays.position)}</div>` : '<div class="muted small" style="margin-bottom:6px">Ghi lệnh trong 💼 Danh mục để tool tính đúng số cổ phiếu cần bán theo vị thế của bạn.</div>'}
+        <div class="tbl-wrap">${table(st.hold, false)}</div>
       </div>
     </div>` : ''}
     <div class="bf-body">
       <ul class="bf-reasons">${b.reasons.map((r) => `<li data-tone="${r.tone}"><span class="bf-ic" aria-hidden="true">${BRIEF_ICON[r.tone]}</span>${esc(r.text)}</li>`).join('')}</ul>
-      <div class="bf-levels">${levels}</div>
+      ${l ? ladder(l) : ''}
     </div>
     ${b.risks.length ? `<div class="bf-risks">⚠ ${b.risks.map(esc).join(' · ')}</div>` : ''}`;
 }
 
+
+$('brief-card')?.addEventListener('change', (e) => {
+  if (e.target.id !== 'bf-capital') return;
+  try { localStorage.setItem('vnstock_capital', String(Math.max(0, Number(e.target.value) || 0))); } catch { /* bỏ qua */ }
+  if (state.current) renderBrief(state.current);
+});
+
 $('brief-card')?.addEventListener('click', async (e) => {
+  if (e.target.closest('[data-bf="rerun"]') && state.current) { runAiFor(state.current); return; }
   if (e.target.id !== 'bf-copy' || !state.current?.brief) return;
   try {
     await navigator.clipboard.writeText(briefText(state.current));

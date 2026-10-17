@@ -12,6 +12,7 @@ export const HORIZONS = [5, 10, 20];
 export const SOURCES = {
   rank_all: 'Điểm xếp hạng — toàn bộ rổ (mỗi phiên)',
   legacy_all: 'Điểm kiểu cũ — toàn bộ rổ (mỗi phiên)',
+  final: 'Quyết định cuối (hệ thống + AI thẩm định)',
   rule: 'Khuyến nghị hệ thống (mã đã xem)',
   rank: 'Điểm xếp hạng (mã đã xem)',
   rank_top: 'Top 8 bảng xếp hạng',

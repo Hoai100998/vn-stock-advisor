@@ -6,6 +6,11 @@ import { providers, providerStatus, generateJson } from './llm.js';
 
 const MIN = 60_000;
 
+export const MARKET_FACTORS = {
+  VN_INDEX: 'Xu hướng VN-Index', DO_RONG_THANH_KHOAN: 'Độ rộng & thanh khoản', KHOI_NGOAI: 'Khối ngoại',
+  NGANH: 'Dòng tiền ngành', TIN_TUC: 'Tin tức & sự kiện', CO_BAN: 'Định giá & cơ bản',
+};
+
 export const DECISIONS = {
   MUA: 'MUA',
   MUA_THAM_DO: 'MUA THĂM DÒ',
@@ -52,12 +57,34 @@ const SCHEMA = {
     catalysts: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Sự kiện có thể làm giá thay đổi mạnh sắp tới' },
     watchItems: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Tín hiệu cần theo dõi để đổi quyết định' },
     ruleScoreComment: { type: 'STRING', description: 'Đồng ý hay không với điểm theo quy tắc của hệ thống và vì sao' },
+    marketChecks: {
+      type: 'ARRAY',
+      description: 'Đánh giá ĐỦ 6 yếu tố, mỗi yếu tố 1 dòng có số liệu',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          factor: { type: 'STRING', enum: ['VN_INDEX', 'DO_RONG_THANH_KHOAN', 'KHOI_NGOAI', 'NGANH', 'TIN_TUC', 'CO_BAN'] },
+          status: { type: 'STRING', enum: ['TOT', 'TRUNG_TINH', 'XAU'] },
+          note: { type: 'STRING', description: 'Tối đa 15 từ, có số liệu' },
+        },
+        required: ['factor', 'status', 'note'],
+      },
+    },
+    planReview: {
+      type: 'OBJECT',
+      description: 'Thẩm định khuyến nghị và kế hoạch mua/bán của hệ thống',
+      properties: {
+        verdict: { type: 'STRING', enum: ['DONG_Y', 'THAN_TRONG_HON', 'TICH_CUC_HON'] },
+        reason: { type: 'STRING', description: '1-2 câu, nêu yếu tố thị trường quyết định' },
+      },
+      required: ['verdict', 'reason'],
+    },
     dataGaps: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Dữ liệu còn thiếu hoặc đáng ngờ' },
   },
   required: ['decision', 'headline', 'marketFlowView', 'confidence', 'horizon', 'summary', 'forNewBuyers', 'forHolders',
     'stopLoss', 'targets', 'positionSizing', 'bullCase', 'bearCase', 'newsInsights', 'catalysts', 'watchItems',
-    'ruleScoreComment', 'dataGaps'],
-  propertyOrdering: ['summary', 'bullCase', 'bearCase', 'newsInsights', 'marketFlowView', 'catalysts', 'ruleScoreComment',
+    'ruleScoreComment', 'dataGaps', 'marketChecks', 'planReview'],
+  propertyOrdering: ['marketChecks', 'summary', 'bullCase', 'bearCase', 'newsInsights', 'marketFlowView', 'catalysts', 'ruleScoreComment', 'planReview',
     'decision', 'headline', 'confidence', 'horizon', 'forNewBuyers', 'forHolders', 'entryZone', 'stopLoss', 'targets',
     'positionSizing', 'watchItems', 'dataGaps'],
 };
@@ -75,9 +102,16 @@ Nguyên tắc:
   Đối chiếu tin với phản ứng giá của phiên sau khi tin ra: tin tốt mà giá giảm là dấu hiệu tin đã được phản ánh hoặc lực bán mạnh.
   Ưu tiên tin về kết quả kinh doanh, giao dịch nội bộ, cổ tức và pháp lý hơn tin mô tả diễn biến giá.
 - Ưu tiên bảo toàn vốn: khi tín hiệu trái chiều hãy chọn GIU hoặc DUNG_NGOAI thay vì MUA.
+- BẮT BUỘC kiểm tra 6 yếu tố trong marketChecks trước khi kết luận: xu hướng VN-Index (so với MA50, MA200),
+  độ rộng và thanh khoản thị trường, khối ngoại (toàn sàn và mã này), dòng tiền ngành của mã, tin tức/sự kiện,
+  định giá và tăng trưởng. Nếu từ 3 yếu tố XAU trở lên, hoặc VN-Index dưới MA200 kèm khối ngoại bán ròng mạnh,
+  thì không chọn MUA (tối đa MUA_THAM_DO).
+- Thẩm định kế hoạch của hệ thống trong planReview: DONG_Y nếu phù hợp; THAN_TRONG_HON nếu yếu tố thị trường,
+  tin tức hoặc rủi ro khiến nên hạ mức (nêu yếu tố cụ thể); TICH_CUC_HON chỉ khi dữ liệu rất rõ ràng.
+  Quyết định cuối sẽ lấy bên thận trọng hơn giữa bạn và hệ thống.
 - Giá tính bằng nghìn đồng. Biên độ HOSE ±7%, HNX ±10%, UPCoM ±15%; giao dịch T+2.
 - Cắt lỗ phải thấp hơn giá hiện tại; mục tiêu phải cao hơn giá hiện tại.
-- Viết bằng tiếng Việt, ngắn gọn, cụ thể, có con số.
+- Viết bằng tiếng Việt CÓ DẤU đầy đủ (không viết không dấu), ngắn gọn, cụ thể, có con số.
 Các lựa chọn decision: MUA (mua mạnh), MUA_THAM_DO (mua tỷ trọng nhỏ), GIU (giữ/theo dõi), DUNG_NGOAI (chưa mua),
 BAN_BOT (hạ tỷ trọng), BAN (bán toàn bộ).`;
 
@@ -90,7 +124,13 @@ function buildPrompt(a) {
   const lines = [];
   lines.push(`# Mã ${a.symbol} - ${a.info.name} (${a.info.exchange})`);
   lines.push(`Ngày dữ liệu: ${a.price.date}. Giá đóng cửa: ${a.price.close} (${a.price.changePct}% so với phiên trước).`);
-  if (a.market) lines.push(`VN-Index: ${a.market.close} (${a.market.changePct}%), xu hướng: ${a.market.trend}.`);
+  if (a.market) {
+    const m = a.market;
+    lines.push(`VN-Index: ${m.close} (${m.changePct}%), xu hướng ngắn: ${m.trend}; MA50 ${m.ma50 ?? 'n/a'}, MA200 ${m.ma200 ?? 'n/a'} → ${m.aboveMa200 === false ? 'DƯỚI MA200' : m.aboveMa200 ? 'trên MA200' : 'n/a'}; 20 phiên ${m.return20d ?? 'n/a'}%.`);
+  }
+  if (a.sector) {
+    lines.push(`Ngành của mã: ${a.sector.name}, dòng tiền ròng ước tính ${(a.sector.net / 1e9).toFixed(0)} tỷ trong ${a.sector.period} phiên, xếp ${a.sector.rank}/${a.sector.total} ngành (1 = hút tiền mạnh nhất).`);
+  }
 
   lines.push('\n## Chỉ báo kỹ thuật');
   lines.push(`MA20 ${n(i.sma20)}, MA50 ${n(i.sma50)}, MA200 ${n(i.sma200)}; RSI14 ${n(i.rsi14, 1)}; MACD ${n(i.macd, 3)} / signal ${n(i.macdSignal, 3)} / hist ${n(i.macdHist, 3)}`);
@@ -155,6 +195,18 @@ function buildPrompt(a) {
   for (const s of [...a.technical.signals, ...a.fundamental.signals, ...a.news.signals]) lines.push(`- (${s.points > 0 ? '+' : ''}${s.points}) ${s.text}`);
   for (const w of a.warnings) lines.push(`- CẢNH BÁO: ${w}`);
 
+  const b = a.brief;
+  if (b?.levels) {
+    const l = b.levels;
+    const side = { buy: 'Mua', sell: 'Bán', stop: 'Cắt lỗ', wait: 'Chờ' };
+    const step = (x) => `${side[x.side]} ${x.zone ? `${x.zone[0]}-${x.zone[1]}` : x.price ?? ''}${x.portion ? ` (${Math.round(x.portion * 100)}% vốn)` : ''}: ${x.condition}`;
+    lines.push('\n## Kế hoạch của hệ thống (cần bạn thẩm định)');
+    lines.push(`Khuyến nghị: ${b.verdict}. Bậc thang giá: kháng cự 2 ${l.r2}, kháng cự 1 ${l.r1}, giá ${l.close}, hỗ trợ 1 ${l.s1}${l.s2 != null ? `, hỗ trợ 2 ${l.s2}` : ''}, cắt lỗ ${l.stop}; tỷ trọng tối đa ${Math.round((l.weight ?? 0.1) * 100)}% vốn.`);
+    if (b.steps) {
+      lines.push('Người chưa có: ' + b.steps.fresh.map(step).join(' | '));
+      lines.push('Người đang giữ: ' + b.steps.hold.map(step).join(' | '));
+    }
+  }
   lines.push('\nHãy phân tích và trả về JSON theo schema.');
   return lines.join('\n');
 }
@@ -192,6 +244,11 @@ function sanitize(r, close) {
     watchItems: arr(r.watchItems),
     ruleScoreComment: String(r.ruleScoreComment || ''),
     dataGaps: arr(r.dataGaps),
+    marketChecks: (Array.isArray(r.marketChecks) ? r.marketChecks : [])
+      .filter((x) => MARKET_FACTORS[x?.factor] && ['TOT', 'TRUNG_TINH', 'XAU'].includes(x.status))
+      .map((x) => ({ factor: x.factor, label: MARKET_FACTORS[x.factor], status: x.status, note: String(x.note || '') })),
+    planReview: r.planReview && ['DONG_Y', 'THAN_TRONG_HON', 'TICH_CUC_HON'].includes(r.planReview.verdict)
+      ? { verdict: r.planReview.verdict, reason: String(r.planReview.reason || '') } : null,
   };
 }
 
@@ -273,7 +330,7 @@ Nguyên tắc:
 - Mã đã tăng nóng (RSI > 70, xa MA20) thì chọn CHO_DIEM_MUA với vùng mua thấp hơn giá hiện tại.
 - LOAI nếu rủi ro lớn hơn tiềm năng. Được phép loại nhiều mã.
 - Giá tính bằng nghìn đồng; cắt lỗ < vùng mua < mục tiêu; tỷ lệ lợi nhuận/rủi ro nên ≥ 1,5.
-- Viết tiếng Việt, ngắn gọn, có con số. Trong văn bản không viết mã kỹ thuật như CHO_DIEM_MUA, MUA_THAM_DO;
+- Viết tiếng Việt CÓ DẤU đầy đủ, ngắn gọn, có con số. Trong văn bản không viết mã kỹ thuật như CHO_DIEM_MUA, MUA_THAM_DO;
   dùng "chờ điểm mua", "mua thăm dò".`;
 
 function pickPrompt(cands, marketFlow, market) {

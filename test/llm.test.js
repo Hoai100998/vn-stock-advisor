@@ -32,9 +32,9 @@ test('Thứ tự nhà cung cấp và AI_PROVIDERS', () => {
   process.env.GEMINI_API_KEYS = 'g2, g1';
   process.env.MISTRAL_API_KEY = 'm';
   process.env.GROQ_API_KEY = 'q';
-  assert.deepEqual(providers().map((p) => p.id), ['gemini1', 'gemini2', 'mistral', 'groq']);
+  assert.deepEqual(providers().map((p) => p.id), ['gemini1', 'gemini2', 'gemini1-lite', 'gemini2-lite', 'mistral', 'groq']);
   process.env.AI_PROVIDERS = 'groq,gemini';
-  assert.deepEqual(providers().map((p) => p.id), ['groq', 'gemini1', 'gemini2']);
+  assert.deepEqual(providers().map((p) => p.id), ['groq', 'gemini1', 'gemini2', 'gemini1-lite', 'gemini2-lite']);
 });
 
 test('Gemini hết hạn mức → thử model nhẹ → chuyển sang Mistral, rồi lần sau bỏ qua Gemini đang nghỉ', async () => {
@@ -50,7 +50,7 @@ test('Gemini hết hạn mức → thử model nhẹ → chuyển sang Mistral, 
   const r = await generateJson('xin chào', { system: 's', schema });
   assert.deepEqual(r.json, { ok: true });
   assert.equal(r.provider, 'Mistral');
-  assert.equal(calls.filter((u) => u.includes('generativelanguage')).length, 2); // model chính + model nhẹ
+  assert.equal(calls.filter((u) => u.includes('generativelanguage')).length, 2); // model chính + model nhẹ (2 mục riêng)
   assert.equal(providerStatus().find((p) => p.id === 'gemini1').status, 'resting');
 
   calls.length = 0;

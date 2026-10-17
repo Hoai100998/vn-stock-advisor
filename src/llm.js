@@ -13,11 +13,14 @@ const list = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
 export function providers() {
   const out = [];
   const geminiKeys = [...new Set([env('GEMINI_API_KEY'), ...list(env('GEMINI_API_KEYS'))].filter(Boolean))];
-  geminiKeys.forEach((key, i) => out.push({
-    id: `gemini${i + 1}`, kind: 'gemini', group: 'gemini',
-    label: geminiKeys.length > 1 ? `Gemini #${i + 1}` : 'Gemini',
-    key, model: env('GEMINI_MODEL', 'gemini-flash-latest'), fallbackModel: env('GEMINI_FALLBACK_MODEL', 'gemini-flash-lite-latest'),
-  }));
+  // Thử model chính trên MỌI key trước (chất lượng tốt hơn), rồi mới tới model nhẹ (hạn mức riêng) trên từng key
+  const main = env('GEMINI_MODEL', 'gemini-flash-latest');
+  const lite = env('GEMINI_FALLBACK_MODEL', 'gemini-flash-lite-latest');
+  const tag = (i) => (geminiKeys.length > 1 ? `Gemini #${i + 1}` : 'Gemini');
+  geminiKeys.forEach((key, i) => out.push({ id: `gemini${i + 1}`, kind: 'gemini', group: 'gemini', label: tag(i), key, model: main }));
+  if (lite && lite !== main) {
+    geminiKeys.forEach((key, i) => out.push({ id: `gemini${i + 1}-lite`, kind: 'gemini', group: 'gemini', label: `${tag(i)} (lite)`, key, model: lite }));
+  }
   if (env('MISTRAL_API_KEY')) {
     out.push({ id: 'mistral', kind: 'openai', group: 'mistral', label: 'Mistral', key: env('MISTRAL_API_KEY'),
       base: 'https://api.mistral.ai/v1', model: env('MISTRAL_MODEL', 'mistral-small-latest') });
@@ -185,7 +188,7 @@ async function callOpenAI(p, prompt, { system, schema, timeout }) {
 
 async function tryProvider(p, prompt, opts) {
   if (p.kind === 'gemini') {
-    // Model chính: thử lại khi quá tải; hết hạn mức thì chuyển sang model nhẹ (hạn mức riêng) cùng key
+    // Thử lại một lần khi quá tải; hết hạn mức thì để chuỗi dự phòng chuyển sang key/model kế tiếp
     let lastErr;
     for (const delay of [0, 3000]) {
       if (delay) await sleep(delay);
@@ -193,9 +196,6 @@ async function tryProvider(p, prompt, opts) {
         lastErr = err;
         if (err.kind !== 'transient' || /quá lâu/.test(err.message)) break;
       }
-    }
-    if (p.fallbackModel && p.fallbackModel !== p.model && ['quota', 'transient', 'model'].includes(lastErr.kind)) {
-      return await callGemini(p, p.fallbackModel, prompt, opts);
     }
     throw lastErr;
   }

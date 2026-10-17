@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { analyzeSymbol, summarize } from './analyze.js';
 import { aiAnalyze, aiConfig } from './ai.js';
 import { recordPrediction } from './predictions.js';
+import { finalDecision } from './decision.js';
 
 const AI_DIRECTION = { MUA: 1, MUA_THAM_DO: 1, GIU: 0, DUNG_NGOAI: -1, BAN_BOT: -1, BAN: -1 };
 
@@ -71,13 +72,19 @@ export async function getAiResult(symbol) {
 export async function runAi(symbol, { force = false, analysis = null } = {}) {
   await load();
   const a = analysis || await analyzeSymbol(symbol, { withChart: false });
-  const result = await aiAnalyze(a, { force });
+  const result = { ...(await aiAnalyze(a, { force })) };
+  // Quyết định cuối: hệ thống + AI thẩm định, lấy bên thận trọng hơn; kế hoạch mua/bán tính lại theo mức cuối
+  result.final = finalDecision(a, result);
   const prev = state.ai[a.symbol];
   if (prev && prev.decision !== result.decision && state.watchlist.some((w) => w.symbol === a.symbol)) {
     addAlert(a.symbol, 'ai', `Gemini đổi quyết định từ ${prev.decisionLabel} sang ${result.decisionLabel} (tin cậy ${result.confidence}%)`);
   }
   state.ai[a.symbol] = result;
   await save();
+  if (result.final) {
+    const dir = { BUY: 1, ACCUMULATE: 1, HOLD: 0, AVOID: -1, SELL: -1 }[result.final.code];
+    recordPrediction({ source: 'final', symbol: a.symbol, date: a.price.date, direction: dir, label: result.final.label, price: a.price.close, detail: result.final.relation });
+  }
   recordPrediction({ source: 'ai', symbol: a.symbol, date: a.price.date, direction: AI_DIRECTION[result.decision], label: result.decisionLabel, price: a.price.close, detail: `Tin cậy ${result.confidence}%` });
   return result;
 }

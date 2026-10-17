@@ -1,5 +1,6 @@
 // Tóm tắt nhanh cho một mã: kết luận, việc nên làm, 4-5 lý do ngắn có số liệu, mức giá và rủi ro.
 // Dựng hoàn toàn từ dữ liệu đã tính (không cần AI) để đọc lướt là hiểu.
+import { priceLevels, tradeSteps } from './tradeplan.js';
 
 const pct = (v, d = 0) => (v == null || !Number.isFinite(v) ? '–' : `${v > 0 ? '+' : ''}${(v * 100).toLocaleString('vi-VN', { minimumFractionDigits: d, maximumFractionDigits: d })}%`);
 const ty = (v) => (v == null ? '–' : `${v > 0 ? '+' : ''}${(v / 1e9).toLocaleString('vi-VN', { maximumFractionDigits: Math.abs(v) >= 1e11 ? 0 : 1 })} tỷ`);
@@ -17,7 +18,7 @@ export function positionSize(close, stopLoss, { riskPerTrade = 0.01, cap = 0.25 
 
 const ACTIONS = {
   BUY: (l) => `Có thể mua, tối đa ${l.size} vốn; cắt lỗ nếu đóng cửa dưới ${l.stop}.`,
-  ACCUMULATE: (l) => `Chỉ mua thăm dò tỷ trọng nhỏ (dưới ${l.size} vốn); cắt lỗ dưới ${l.stop}.`,
+  ACCUMULATE: (l) => `Chỉ mua thăm dò, tối đa ${l.half} vốn; cắt lỗ dưới ${l.stop}.`,
   HOLD: (l) => `Chưa mua mới. Đang có thì giữ, bán nếu đóng cửa dưới ${l.stop}.`,
   AVOID: (l) => `Không mua mới. Đang có thì cân nhắc giảm, nhất là khi thủng ${l.stop}.`,
   SELL: () => 'Không mua. Đang có nên hạ tỷ trọng.',
@@ -99,7 +100,7 @@ export function playbook(code, c) {
  * @param {{ name: string, net: number, rank: number, total: number, period: number }|null} sector dòng tiền ngành
  * @param {object|null} holding vị thế đang nắm giữ (từ Danh mục)
  */
-export function buildBrief(a, sector = null, holding = null) {
+export function buildBrief(a, sector = null, holding = null, bars = null) {
   const r = a.ranking;
   const i = a.technical.indicators;
   const f = a.fundamental.data || {};
@@ -143,20 +144,37 @@ export function buildBrief(a, sector = null, holding = null) {
     add(a.news.score > 0 ? 'up' : 'down', `Tin tức nghiêng ${a.news.score > 0 ? 'tích cực' : 'tiêu cực'} (${a.news.positive} tốt / ${a.news.negative} xấu)`);
   }
 
-  // Mức giá: vùng mua quanh hỗ trợ–giá hiện tại, cắt lỗ và mục tiêu theo ATR
+  // Bậc thang giá từ đỉnh/đáy thực tế + MA + ATR; nếu không có chuỗi giá thì dùng kế hoạch ATR đơn giản
   const p = a.plan;
-  const size = p ? positionSize(close, p.stopLoss) : null;
-  // Vùng mua phải nằm trên mức cắt lỗ: lấy từ max(hỗ trợ, cắt lỗ + 1%) đến giá hiện tại
-  const buyFrom = p ? Math.min(close, Math.max(p.support, Math.round(p.stopLoss * 1.01 * 100) / 100)) : null;
-  const levels = p ? {
-    buyFrom, buyTo: close, stop: p.stopLoss, target: p.target, riskReward: p.riskReward,
-    stopPct: (p.stopLoss - close) / close, targetPct: (p.target - close) / close,
+  const L = bars?.length >= 60
+    ? priceLevels(bars, { atr: i.atr14, ma20: i.sma20, ma50: i.sma50, ma200: i.sma200 })
+    : p ? { r2: p.target, r1: p.resistance, close, s1: p.support, s2: null, stop: p.stopLoss, atr: i.atr14 || close * 0.02 } : null;
+  const size = L ? positionSize(close, L.stop) : null;
+  const steps = L ? tradeSteps(a.recommendation.code, L, {
+    weight: size?.weight ?? 0.1, rsi: i.rsi14, avgVol20: i.avgVolume20, ma200: i.sma200,
+    score: r?.score, aboveMa200: r?.aboveMa200, holding,
+  }) : null;
+  const firstBuy = steps?.fresh.find((x) => x.side === 'buy' && x.zone);
+  const levels = L ? {
+    ...L, buyFrom: firstBuy?.zone[0] ?? L.s1, buyTo: firstBuy?.zone[1] ?? close,
+    // Kháng cự 1 sát giá (dưới 1 ATR) thì lấy kháng cự 2 làm mục tiêu tính lời/lỗ
+    ...(() => {
+      const tgt = L.r1 - close >= L.atr ? L.r1 : L.r2;
+      return {
+        target: tgt, targetLabel: tgt === L.r1 ? 'mục tiêu 1' : 'mục tiêu 2',
+        stopPct: (L.stop - close) / close, targetPct: (tgt - close) / close,
+        riskReward: close > L.stop ? Math.round(((tgt - close) / (close - L.stop)) * 10) / 10 : null,
+      };
+    })(),
     weight: size?.weight ?? null,
   } : null;
-  const fmtLv = { size: size ? `${Math.round(size.weight * 100)}%` : '10%', stop: p ? num(p.stopLoss, 2) : 'mức hỗ trợ gần nhất' };
+  const fmtLv = {
+    size: size ? `${Math.round(size.weight * 100)}%` : '10%', half: size ? `${Math.max(1, Math.round(size.weight * 50))}%` : '5%',
+    stop: L ? num(L.stop, 2) : 'mức hỗ trợ gần nhất',
+  };
   const action = (ACTIONS[a.recommendation.code] || ACTIONS.HOLD)(fmtLv);
   const plays = levels ? playbook(a.recommendation.code, {
-    close, stop: p.stopLoss, buyFrom, buyTo: close, target: p.target, resistance: p.resistance, weight: size?.weight ?? null,
+    close, stop: L.stop, buyFrom: levels.buyFrom, buyTo: levels.buyTo, target: L.r1, resistance: L.r1, weight: size?.weight ?? null,
     rsi: i.rsi14, aboveMa200: r?.aboveMa200, ma200: i.sma200, score: r?.score, holding,
   }) : null;
 
@@ -176,6 +194,17 @@ export function buildBrief(a, sector = null, holding = null) {
     levels,
     risks,
     plays,
+    steps,
     holding,
   };
+}
+
+/** Câu hành động chính cho một mức khuyến nghị (dùng lại khi AI thẩm định đổi mức). */
+export function actionFor(code, levels) {
+  const fmtLv = {
+    size: levels?.weight != null ? `${Math.round(levels.weight * 100)}%` : '10%',
+    half: levels?.weight != null ? `${Math.max(1, Math.round(levels.weight * 50))}%` : '5%',
+    stop: levels ? num(levels.stop, 2) : 'mức hỗ trợ gần nhất',
+  };
+  return (ACTIONS[code] || ACTIONS.HOLD)(fmtLv);
 }

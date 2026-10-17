@@ -29,14 +29,17 @@ for (const sym of list) {
     if (a.brief) {
       const b = a.brief, l = b.levels;
       console.log(`   → ${b.action}`);
-      if (b.plays) {
+      if (b.steps) {
+        const side = { buy: 'Mua', sell: 'Bán', stop: 'Cắt lỗ', wait: 'Chờ' };
+        const line = (x) => `     [${side[x.side]}] ${x.zone ? `${x.zone[0]}–${x.zone[1]}` : x.price ?? ''}${x.portion ? ` · ${Math.round(x.portion * 100)}% vốn` : ''}${x.shares != null ? ` · ${x.shares} cp` : ''} · ${x.condition}`;
         console.log(`   Nếu CHƯA có:${b.holding ? '' : '  ← bạn'}`);
-        for (const x of b.plays.newBuyer) console.log(`     - ${x}`);
-        console.log(`   Nếu ĐANG nắm giữ:${b.holding ? '  ← bạn' : ''}${b.plays.position ? ` (${b.plays.position})` : ''}`);
-        for (const x of b.plays.holder) console.log(`     - ${x}`);
+        b.steps.fresh.forEach((x) => console.log(line(x)));
+        console.log(`   Nếu ĐANG nắm giữ:${b.holding ? '  ← bạn' : ''}${b.plays?.position ? ` (${b.plays.position})` : ''}`);
+        b.steps.hold.forEach((x) => console.log(line(x)));
+        const l = b.levels;
+        console.log(`   Bậc thang: KC2 ${l.r2} · KC1 ${l.r1} · giá ${l.close} · HT1 ${l.s1}${l.s2 != null ? ` · HT2 ${l.s2}` : ''} · cắt lỗ ${l.stop}`);
       }
       for (const r of b.reasons) console.log(`   ${{ up: '▲', down: '▼', ref: '•' }[r.tone]} ${r.text}`);
-      if (l) console.log(`   Vùng mua ${l.buyFrom}–${l.buyTo} · cắt lỗ ${l.stop} · mục tiêu ${l.target}${l.weight != null ? ` · tỷ trọng tối đa ${Math.round(l.weight * 100)}%` : ''}`);
       if (b.risks.length) console.log(`   ⚠ ${b.risks.join(' · ')}`);
       console.log('   --- chi tiết ---');
     }

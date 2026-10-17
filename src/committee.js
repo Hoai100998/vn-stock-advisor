@@ -21,7 +21,7 @@ const MAX_SAVED = 40;
 const RULES = `- Chỉ dùng số liệu có trong dữ liệu; không bịa số liệu, sự kiện, tin tức hay giá mục tiêu của công ty chứng khoán.
 - Mỗi luận điểm phải dẫn số liệu cụ thể (giá, chỉ báo, chỉ số tài chính, tin nào, kết quả backtest).
 - Giá tính bằng nghìn đồng. Biên độ HOSE ±7%, HNX ±10%, UPCoM ±15%; thanh toán T+2, không bán khống.
-- Viết tiếng Việt, ngắn gọn, có con số. Không viết mã kỹ thuật kiểu MUA_THAM_DO trong văn bản.`;
+- Viết tiếng Việt CÓ DẤU đầy đủ, ngắn gọn, có con số. Không viết mã kỹ thuật kiểu MUA_THAM_DO trong văn bản.`;
 
 const BULL_SYSTEM = `Bạn là chuyên viên phân tích phe MUA của một quỹ đầu tư tại Việt Nam.
 Nhiệm vụ: xây dựng luận điểm mua mạnh nhất có thể cho mã cổ phiếu, nhưng trung thực và dựa trên dữ liệu.
