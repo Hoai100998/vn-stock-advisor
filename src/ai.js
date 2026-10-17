@@ -67,6 +67,8 @@ Nhiệm vụ: dựa HOÀN TOÀN vào dữ liệu được cung cấp, đưa ra q
 Nguyên tắc:
 - Chỉ dùng số liệu có trong dữ liệu; không bịa thêm số liệu, sự kiện hay tin tức. Thiếu dữ liệu thì ghi vào dataGaps.
 - Cân nhắc cả xu hướng kỹ thuật, định giá, chất lượng tăng trưởng, tin tức và bối cảnh VN-Index.
+- Điểm xếp hạng 4 yếu tố là tín hiệu định lượng đã kiểm chứng; điểm kỹ thuật kiểu cũ chỉ để tham khảo. Chỉ chọn MUA khi
+  mã thuộc nhóm điểm ≥ 70 và giá trên MA200, trừ khi có lý do rất rõ trong dữ liệu.
 - Không dựa vào một chỉ báo đơn lẻ: xác nhận chéo xu hướng (MA + ADX), động lượng (RSI + MACD + Stochastic),
   dòng tiền (MFI + OBV + khối lượng + khối ngoại) và sức mạnh tương đối so với VN-Index. Nêu rõ khi các nhóm mâu thuẫn.
 - Tiêu đề tin tức chỉ là tín hiệu; nhãn cảm xúc do máy chấm theo từ khóa nên có thể sai, hãy tự đánh giá lại.
@@ -141,8 +143,15 @@ function buildPrompt(a) {
     lines.push(`- [${it.label}${cats}] ${it.source}, ${date}${react}: ${it.title}${it.summary ? ` — ${it.summary.slice(0, 200)}` : ''}`);
   }
 
-  lines.push('\n## Điểm theo quy tắc của hệ thống (−100..100)');
-  lines.push(`Tổng ${a.total} → ${a.recommendation.label}. Kỹ thuật ${a.scores.technical}, cơ bản ${a.scores.fundamental ?? 'n/a'}, tin tức ${a.scores.news ?? 'n/a'}.`);
+  if (a.ranking) {
+    const r = a.ranking;
+    lines.push('\n## Điểm xếp hạng 4 yếu tố (tín hiệu CHÍNH, đã kiểm chứng ngoài mẫu)');
+    lines.push(`Điểm ${r.score}/100, hạng ${r.position}/${r.universe} trong rổ HOSE thanh khoản ≥ 5 tỷ; giá ${r.aboveMa200 === false ? 'DƯỚI' : 'trên'} MA200. Phân vị: động lượng 12 tháng ${r.parts.mom ?? 'n/a'}, gần đỉnh 52 tuần ${r.parts.high ?? 'n/a'}, biến động thấp ${r.parts.atr ?? 'n/a'}, ADX ${r.parts.adx ?? 'n/a'}.`);
+    lines.push(`Khuyến nghị hệ thống: ${a.recommendation.label} — ${a.recommendation.desc}`);
+    lines.push('Bằng chứng lịch sử 2022–2026: chỉ nhóm điểm ≥ 70 và trên MA200 thắng VN-Index ổn định (+0,7–0,9%/20 phiên); nhóm ≥ 70 nhưng dưới MA200 thua 1–1,5%; các nhóm khác không có lợi thế.');
+  }
+  lines.push('\n## Điểm kỹ thuật/cơ bản/tin tức kiểu cũ (−100..100) — CHỈ THAM KHẢO: đã kiểm chứng KHÔNG dự báo được hướng giá');
+  lines.push(`Tổng ${a.total} (${a.legacy?.label ?? ''}). Kỹ thuật ${a.scores.technical}, cơ bản ${a.scores.fundamental ?? 'n/a'}, tin tức ${a.scores.news ?? 'n/a'}.`);
   for (const s of [...a.technical.signals, ...a.fundamental.signals, ...a.news.signals]) lines.push(`- (${s.points > 0 ? '+' : ''}${s.points}) ${s.text}`);
   for (const w of a.warnings) lines.push(`- CẢNH BÁO: ${w}`);
 
@@ -257,6 +266,8 @@ const PICK_SYSTEM = `Bạn là chuyên viên phân tích chứng khoán Việt N
 Nhiệm vụ: từ danh sách cổ phiếu đã được bộ lọc định lượng chọn ra, đánh giá mã nào thực sự đáng mua trong 1-3 tháng tới.
 Nguyên tắc:
 - Chỉ dùng dữ liệu được cung cấp, không bịa số liệu hay tin tức. Không hứa hẹn lợi nhuận.
+- Các mã đều đã qua lọc định lượng: điểm xếp hạng 4 yếu tố ≥ 70 và giá trên MA200 (nhóm duy nhất thắng VN-Index ổn định trong
+  lịch sử). Nhiệm vụ của bạn là loại mã có rủi ro cơ bản/tin tức, định giá quá đắt hoặc đang tăng quá nóng.
 - Ưu tiên mã có nhiều nhóm tín hiệu cùng chiều (xu hướng, động lượng, dòng tiền, khối ngoại, cơ bản, tin tức).
 - Thị trường chung xấu thì hạ mức quyết định (MUA → MUA_THAM_DO hoặc CHO_DIEM_MUA) và nói rõ.
 - Mã đã tăng nóng (RSI > 70, xa MA20) thì chọn CHO_DIEM_MUA với vùng mua thấp hơn giá hiện tại.
@@ -275,7 +286,8 @@ function pickPrompt(cands, marketFlow, market) {
   for (const c of cands) {
     const i = c.indicators, f = c.fundamentals || {};
     L.push(`\n## ${c.symbol} - ${c.name} (${c.exchange}) giá ${c.close} (${c.changePct}% hôm nay)`);
-    L.push(`Setup: ${c.setups.map((s) => s.label).join(', ') || 'không'}; điểm hệ thống: tổng ${c.total}, kỹ thuật ${c.scores.technical}, cơ bản ${c.scores.fundamental ?? 'n/a'}, tin ${c.scores.news ?? 'n/a'}`);
+    L.push(`Điểm xếp hạng 4 yếu tố: ${c.ranking?.score ?? 'n/a'} (hạng ${c.ranking?.position ?? '?'}/${c.ranking?.universe ?? '?'})`);
+    L.push(`Setup: ${c.setups.map((s) => s.label).join(', ') || 'không'}; điểm kiểu cũ (chỉ tham khảo): tổng ${c.total}, kỹ thuật ${c.scores.technical}, cơ bản ${c.scores.fundamental ?? 'n/a'}, tin ${c.scores.news ?? 'n/a'}`);
     L.push(`MA20 ${i.sma20}, MA50 ${i.sma50}, MA200 ${i.sma200}; RSI ${i.rsi14}; MACD hist ${i.macdHist}; ADX ${i.adx14} (+DI ${i.plusDI}/−DI ${i.minusDI}); Stoch ${i.stochK}; MFI ${i.mfi14}; OBV ${i.obvTrend}; RS 20 phiên so với VN-Index ${i.rs20}; hiệu suất 20/60 phiên ${i.return20d}%/${i.return60d}%`);
     L.push(`P/E ${f.pe?.toFixed?.(1) ?? 'n/a'}, P/B ${f.pb?.toFixed?.(2) ?? 'n/a'}, ROE ${f.roe != null ? (f.roe * 100).toFixed(1) + '%' : 'n/a'}, LN 4Q ${f.profitGrowthTTM != null ? (f.profitGrowthTTM * 100).toFixed(0) + '%' : 'n/a'}, DT 4Q ${f.revenueGrowthTTM != null ? (f.revenueGrowthTTM * 100).toFixed(0) + '%' : 'n/a'}`);
     if (c.foreign) L.push(`Khối ngoại: 5 phiên ${(c.foreign.net5 / 1e9).toFixed(1)} tỷ, 20 phiên ${(c.foreign.net20 / 1e9).toFixed(1)} tỷ`);

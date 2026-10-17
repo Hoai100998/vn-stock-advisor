@@ -74,19 +74,14 @@ async function quickScan(item, ctx) {
   if (avgValue20 < screenCriteria().minValue) return null;
 
   const setups = detectSetups({ close, changePct, i, plan: tech.plan, faScore: fa.score ?? 0, flow: tech.flow });
-  // Điểm sơ bộ: như tổng điểm nhưng chưa có tin tức, cộng thưởng nếu có setup rõ
-  const w = fa.score == null ? { t: 1, f: 0 } : { t: 0.4 / 0.75, f: 0.35 / 0.75 };
-  let quick = tech.score * w.t + (fa.score ?? 0) * w.f;
-  quick += Math.min(15, setups.length * 8);
-  // Điểm xếp hạng 4 yếu tố (đã kiểm chứng ngoài mẫu) cộng/trừ tối đa 10 điểm
+  // Tiêu chí chính: điểm xếp hạng 4 yếu tố (đã kiểm chứng). Chỉ nhóm ≥ 70 và trên MA200 thắng VN-Index ổn định,
+  // nên chỉ những mã đó được đưa vào vòng phân tích sâu. Điểm kỹ thuật/cơ bản cũ chỉ để hiển thị.
   const rank = await rankSymbol(item.symbol, bars).catch(() => null);
-  if (rank) quick += (rank.score - 50) / 5;
-  if (i.rsi14 > 75) quick -= 10;
-  if (tech.plan?.riskReward != null && tech.plan.riskReward < 1.2) quick -= 5;
+  const quick = rank ? rank.score : null;
   return {
     symbol: item.symbol, exchange: item.exchange, close, changePct,
     quick: Math.round(quick), technical: tech.score, fundamental: fa.score, setups, avgValue20,
-    rankScore: rank?.score ?? null,
+    rankScore: rank?.score ?? null, aboveMa200: rank?.aboveMa200 ?? null,
   };
 }
 
@@ -122,7 +117,7 @@ async function run() {
 
   // Bước 2
   const shortlist = scanned
-    .filter((c) => (c.setups.length && c.quick >= 5) || c.quick >= 30)
+    .filter((c) => c.quick != null && c.quick >= 70 && c.aboveMa200 !== false)
     .sort((a, b) => b.quick - a.quick)
     .slice(0, STAGE2_SIZE);
   state.progress = { stage: 2, label: 'Phân tích sâu nhóm dẫn đầu (kèm tin tức)', done: 0, total: shortlist.length };
@@ -147,7 +142,7 @@ async function run() {
   }, () => state.progress.done++);
 
   const final = detailed
-    .sort((a, b) => (b.total + b.setups.length * 5) - (a.total + a.setups.length * 5))
+    .sort((a, b) => (b.ranking?.score ?? 0) - (a.ranking?.score ?? 0))
     .slice(0, FINAL_SIZE);
 
   // Bước 3

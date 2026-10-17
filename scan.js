@@ -22,7 +22,25 @@ for (const sym of list) {
     const { scores: s, price: p } = a;
     console.log(`\n=== ${a.symbol} · ${a.info.name} (${a.info.exchange}) ===`);
     console.log(`Giá: ${p.close} (${p.changePct >= 0 ? '+' : ''}${p.changePct}%) ngày ${p.date}`);
-    console.log(`=> ${a.recommendation.label}  | Tổng điểm ${a.total} | Kỹ thuật ${s.technical ?? '-'} · Cơ bản ${s.fundamental ?? '-'} · Tin tức ${s.news ?? '-'} | Độ đồng thuận ${a.recommendation.confidence}%`);
+    if (a.ranking) {
+      console.log(`=> ${a.recommendation.label}  | Điểm xếp hạng ${a.ranking.score}/100 (hạng ${a.ranking.position}/${a.ranking.universe}, ${a.ranking.aboveMa200 === false ? 'dưới' : 'trên'} MA200)`);
+      console.log(`   ${a.recommendation.desc}`);
+    }
+    if (a.brief) {
+      const b = a.brief, l = b.levels;
+      console.log(`   → ${b.action}`);
+      if (b.plays) {
+        console.log(`   Nếu CHƯA có:${b.holding ? '' : '  ← bạn'}`);
+        for (const x of b.plays.newBuyer) console.log(`     - ${x}`);
+        console.log(`   Nếu ĐANG nắm giữ:${b.holding ? '  ← bạn' : ''}${b.plays.position ? ` (${b.plays.position})` : ''}`);
+        for (const x of b.plays.holder) console.log(`     - ${x}`);
+      }
+      for (const r of b.reasons) console.log(`   ${{ up: '▲', down: '▼', ref: '•' }[r.tone]} ${r.text}`);
+      if (l) console.log(`   Vùng mua ${l.buyFrom}–${l.buyTo} · cắt lỗ ${l.stop} · mục tiêu ${l.target}${l.weight != null ? ` · tỷ trọng tối đa ${Math.round(l.weight * 100)}%` : ''}`);
+      if (b.risks.length) console.log(`   ⚠ ${b.risks.join(' · ')}`);
+      console.log('   --- chi tiết ---');
+    }
+    console.log(`   Điểm kiểu cũ (tham khảo): ${a.legacy?.label ?? a.recommendation.label} | Tổng điểm ${a.total} | Kỹ thuật ${s.technical ?? '-'} · Cơ bản ${s.fundamental ?? '-'} · Tin tức ${s.news ?? '-'} | Độ đồng thuận ${a.recommendation.confidence}%`);
     for (const sig of [...a.technical.signals, ...a.fundamental.signals, ...a.news.signals]) {
       console.log(`   ${sig.points > 0 ? '+' : sig.points < 0 ? '-' : '·'} ${sig.text}`);
     }

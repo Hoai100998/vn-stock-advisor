@@ -1,6 +1,6 @@
 # VN Stock Advisor
 
-Công cụ theo dõi và phân tích cổ phiếu Việt Nam (HOSE/HNX/UPCoM) chạy trên máy cá nhân:
+Công cụ theo dõi và phân tích cổ phiếu sàn HOSE (giá trị giao dịch ≥ 5 tỷ/phiên) chạy trên máy cá nhân:
 lấy giá, chỉ số tài chính và tin tức từ nguồn công khai, chấm điểm theo 3 nhóm rồi đưa ra khuyến nghị
 **NÊN MUA / CÂN NHẮC MUA / THEO DÕI / CHƯA NÊN MUA / TRÁNH-BÁN** kèm lý do cụ thể.
 
@@ -88,7 +88,7 @@ Hạn mức miễn phí của các bên thay đổi thường xuyên; xem trang 
   dòng tiền, pháp lý, dự án/M&A, khuyến nghị, diễn biến giá) và **phản ứng giá** của phiên sau khi tin ra.
   Tin lãnh đạo/người thân mua vào được tính tích cực, bán ra tính tiêu cực.
 - **Thị trường hôm nay** (thanh bên): top tăng mạnh, giảm mạnh, khối ngoại mua ròng, bán ròng và giá trị giao dịch
-  lớn nhất của HOSE/HNX/UPCoM; bấm một mã để phân tích.
+  lớn nhất của sàn HOSE (chỉ mã giao dịch ≥ 5 tỷ trong phiên); bấm một mã để phân tích. Mã HNX/UPCoM bị chặn (mở lại bằng `SCREEN_FLOORS=HOSE,HNX,UPCOM`).
 - **Danh mục theo dõi**: lưu tại `data/state.json`. Server tự quét lại mỗi 10 phút trong giờ giao dịch.
 - **Cảnh báo** (biểu tượng chuông): khi khuyến nghị thay đổi, khi giá vượt hoặc thủng ngưỡng bạn đặt,
   hoặc khi xuất hiện cảnh báo rủi ro mới.
@@ -136,6 +136,29 @@ Hạn mức miễn phí của các bên thay đổi thường xuyên; xem trang 
 - **Nhật ký dự đoán** ([src/predictions.js](src/predictions.js), `data/predictions.json`): tự ghi mọi khuyến nghị (hệ thống,
   điểm xếp hạng, top 8 bảng xếp hạng, Gemini, hội đồng, cổ phiếu tiềm năng) và tự chấm sau 5/10/20 phiên bằng giá thật:
   tỷ lệ đúng hướng, tỷ lệ thắng VN-Index, lợi nhuận trung bình — để biết nguồn nào đáng tin.
+
+### Khuyến nghị dựa trên điểm xếp hạng (từ 17/10/2026)
+
+Nhãn NÊN MUA / THEO DÕI / CHƯA NÊN MUA của mỗi mã cổ phiếu giờ dựa trên **điểm xếp hạng 4 yếu tố**, vì đo trên rổ HOSE ≥ 5 tỷ
+2022–2026 (chia 2 nửa) chỉ có một nhóm thắng VN-Index ổn định:
+
+| Nhóm | Vượt VN-Index mỗi 20 phiên (2 năm đầu / 2 năm gần) | Khuyến nghị |
+|---|---|---|
+| Điểm ≥ 70 và giá trên MA200 | +0,7% / +0,9% | **NÊN MUA** |
+| Điểm ≥ 70 nhưng dưới MA200 | −1,5% / −1,0% (thắng ~40%) | CHƯA NÊN MUA |
+| Điểm 30–69 | lẫn lộn | THEO DÕI |
+| Điểm < 30 | +1,0% / −1,8% | CHƯA NÊN MUA |
+
+Bộ lọc chặn: tin rủi ro nghiêm trọng 7 ngày hoặc doanh nghiệp lỗ → hạ NÊN MUA xuống THEO DÕI; thanh khoản dưới ngưỡng → CÂN NHẮC MUA;
+nhóm đội sổ kèm tin rủi ro/lỗ → TRÁNH/BÁN. Điểm kỹ thuật/cơ bản/tin tức kiểu cũ vẫn hiển thị nhưng chỉ để tham khảo.
+Bộ lọc Cổ phiếu tiềm năng chỉ đưa vào vòng sâu các mã điểm ≥ 70 và trên MA200.
+
+**Lọc theo xu hướng VN-Index đã được thử và không bật**: giảm tỷ trọng khi VN-Index dưới MA200 (hoặc MA50) làm lợi nhuận
+3 năm giảm từ +101% xuống +69% (giữ nửa) / +44% (cầm tiền) mà sụt giảm tối đa không nhỏ hơn. Vẫn có tùy chọn trong backtest.
+
+**Ảnh chụp cuối ngày** ([src/history.js](src/history.js)): sau 15:10 mỗi phiên, lưu khối ngoại, chỉ số tài chính, điểm xếp hạng
+và điểm cũ của toàn bộ rổ vào `data/history/` (để vài tháng sau kiểm chứng phần cơ bản/khối ngoại), đồng thời ghi dự đoán
+của cả hai cách chấm cho **mọi mã** vào nhật ký — so sánh công bằng, không lệch theo mã người dùng mở.
 
 ## Cách chấm điểm
 

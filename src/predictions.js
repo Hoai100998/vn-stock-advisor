@@ -7,11 +7,13 @@ import { getPriceHistory } from './data.js';
 import { cached, uncache } from './http.js';
 
 const FILE = join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'predictions.json');
-const MAX_ITEMS = 8000;
+const MAX_ITEMS = 40000; // ~150 phiên × (2 dự đoán × ~130 mã) + dự đoán lẻ
 export const HORIZONS = [5, 10, 20];
 export const SOURCES = {
-  rule: 'Khuyến nghị hệ thống (điểm cũ)',
-  rank: 'Điểm xếp hạng 4 yếu tố',
+  rank_all: 'Điểm xếp hạng — toàn bộ rổ (mỗi phiên)',
+  legacy_all: 'Điểm kiểu cũ — toàn bộ rổ (mỗi phiên)',
+  rule: 'Khuyến nghị hệ thống (mã đã xem)',
+  rank: 'Điểm xếp hạng (mã đã xem)',
   rank_top: 'Top 8 bảng xếp hạng',
   ai: 'Gemini phân tích',
   committee: 'Hội đồng đầu tư',

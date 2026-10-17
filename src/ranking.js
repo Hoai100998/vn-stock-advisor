@@ -11,6 +11,15 @@ import { recordMany } from './predictions.js';
 import { BANDS, DEFAULTS, LOT, priceLimits, tickSize, roundUp, roundDown, calcMetrics, maxDrawdown } from './backtest.js';
 
 
+export const REGIMES = ['none', 'half', 'cash'];
+export const DEFAULT_REGIME = 'none';
+
+/** Số mã được nắm giữ theo trạng thái thị trường. */
+export function regimeSlots(regime, bear, top) {
+  if (!bear || regime === 'none') return top;
+  return regime === 'half' ? Math.ceil(top / 2) : 0;
+}
+
 export const FACTORS = [
   { key: 'mom', label: 'Động lượng 12 tháng', sign: 1 },
   { key: 'high', label: 'Gần đỉnh 52 tuần', sign: 1 },
@@ -150,19 +159,22 @@ export async function rankSymbol(symbol, bars) {
 // ---------- Backtest danh mục: mỗi kỳ nắm giữ N mã điểm cao nhất, chia đều vốn ----------
 
 /**
- * @param {{ years?: number, top?: number, rebalance?: number, trendFilter?: boolean, initialCash?: number }} opts
+ * @param {{ years?: number, top?: number, rebalance?: number, trendFilter?: boolean, initialCash?: number, regime?: string }} opts
+ *   regime: lọc theo xu hướng VN-Index ở ngày tái cơ cấu — 'none' (luôn đầy vốn), 'half' (VN-Index dưới MA200
+ *   thì chỉ giữ nửa số mã, phần còn lại để tiền mặt), 'cash' (VN-Index dưới MA200 thì bán hết, cầm tiền).
  */
 export async function runRankPortfolio(opts = {}) {
   const years = Math.min(4, Math.max(1, Number(opts.years) || 3));
   const top = Math.min(15, Math.max(3, Number(opts.top) || 8));
   const rebalance = Math.min(60, Math.max(5, Number(opts.rebalance) || 20));
   const trendFilter = opts.trendFilter !== false && opts.trendFilter !== '0' && opts.trendFilter !== 'false';
+  const regime = REGIMES.includes(opts.regime) ? opts.regime : DEFAULT_REGIME;
   const initialCash = Number(opts.initialCash) > 0 ? Number(opts.initialCash) : DEFAULTS.initialCash;
   const { brokerage, sellTax, slippage } = DEFAULTS;
   const days = Math.round((years + 1.3) * 365);
 
   const c = screenCriteria();
-  const key = `rank-pf:${years}:${top}:${rebalance}:${trendFilter}:${initialCash}:${c.floors}:${c.minValue}`;
+  const key = `rank-pf:${years}:${top}:${rebalance}:${trendFilter}:${regime}:${initialCash}:${c.floors}:${c.minValue}`;
   return cached(key, 30 * MIN, async () => {
     const indexRes = await getPriceHistory('VNINDEX', days);
     const uni = await getScreenUniverse();
@@ -170,6 +182,9 @@ export async function runRankPortfolio(opts = {}) {
     const all = await poolMap(uni.map((u) => u.symbol), (s) => getPriceHistory(s, days));
     const cal = indexRes.bars;
     const start = Math.max(1, cal.length - Math.round(years * 252));
+    const idxMa = sma(cal.map((b) => b.close), 200);
+    const idxBear = (t) => idxMa[t] != null && cal[t].close < idxMa[t];
+    const regimeLog = [];
     const data = {};
     uni.forEach(({ symbol: s, exchange }, k) => {
       const bars = all[k]?.bars;
@@ -208,7 +223,7 @@ export async function runRankPortfolio(opts = {}) {
       }
       if (pendingBuy.length) {
         const value = cash + [...pos].reduce((sum, [s, p]) => sum + p.shares * (lastClose[s] ?? p.price) * 1000, 0);
-        const slot = value / top;
+        const slot = value / top; // mỗi mã tối đa 1/top vốn; khi thị trường yếu phần không mua để tiền mặt
         const still = [];
         for (const s of pendingBuy) {
           const d = data[s], i = d.at.get(date);
@@ -249,12 +264,13 @@ export async function runRankPortfolio(opts = {}) {
         const ref = buildRef(snap.map((x) => x.f));
         const scored = snap.map((x) => ({ ...x, score: compositeScore(x.f, ref)?.score })).filter((x) => x.score != null)
           .filter((x) => !trendFilter || x.f.aboveMa200 !== false)
-          .sort((a, b) => b.score - a.score).slice(0, top);
+          .sort((a, b) => b.score - a.score).slice(0, regimeSlots(regime, idxBear(t), top));
         const target = new Set(scored.map((x) => x.s));
         pendingSell = new Set([...pos.keys()].filter((s) => !target.has(s)));
         pendingBuy = [...target].filter((s) => !pos.has(s));
         if (current) periods.push(closePeriod(current, data, date, cal[t].close));
-        current = { from: date, picks: scored.map((x) => ({ symbol: x.s, score: x.score, close: x.f.close })), index: cal[t].close };
+        regimeLog.push({ date, bear: idxBear(t) });
+        current = { from: date, bear: idxBear(t), picks: scored.map((x) => ({ symbol: x.s, score: x.score, close: x.f.close })), index: cal[t].close };
       }
     }
     if (current) periods.push(closePeriod(current, data, cal.at(-1).time, cal.at(-1).close, true));
@@ -285,7 +301,8 @@ export async function runRankPortfolio(opts = {}) {
     const picksBeat = done.reduce((s, p) => s + p.picks.filter((x) => x.excess > 0).length, 0);
     const out = (m) => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, typeof v === 'number' ? (Number.isFinite(v) ? round(v, 4) : null) : v]));
     return {
-      config: { years, top, rebalance, trendFilter, initialCash, brokerage, sellTax, slippage, universe: syms.length, criteria: c },
+      regime: { mode: regime, bearPeriods: regimeLog.filter((x) => x.bear).length, periods: regimeLog.length, now: idxBear(cal.length - 1) ? 'bear' : 'bull' },
+      config: { years, top, rebalance, trendFilter, regime, initialCash, brokerage, sellTax, slippage, universe: syms.length, criteria: c },
       period: { from: equity[0].time, to: equity.at(-1).time, bars: equity.length },
       metrics: out(metrics),
       equalWeight: { totalReturn: round(ew.at(-1) - 1, 4), maxDrawdown: round(maxDrawdown(ew, 1), 4) },

@@ -149,8 +149,6 @@ export function getScreenUniverse() {
     return lists.flat().filter((d) => /^[A-Z0-9]{3}$/.test(d.code)).map((d) => ({ symbol: d.code, exchange: d.floor }));
   });
 }
-// Bỏ qua mã thanh khoản quá thấp (vài trăm cổ phiếu) để top tăng/giảm có ý nghĩa
-const MIN_TRADE_VALUE = 1e9;
 
 /**
  * Top cổ phiếu của một sàn trong phiên gần nhất: tăng mạnh, giảm mạnh,
@@ -166,7 +164,9 @@ export function getMarketMovers(floor = 'HOSE', size = 10) {
 
     const priceFields = 'code,close,change,pctChange,nmVolume,nmValue';
     const base = `${FINFO}/stock_prices?q=date:${date}~floor:${floor}~type:STOCK`;
-    const liquid = `${base}~nmValue:gte:${MIN_TRADE_VALUE}`;
+    // Chỉ xếp hạng mã đạt ngưỡng giá trị giao dịch trong phiên (mặc định 5 tỷ, theo screenCriteria)
+    const minValue = screenCriteria().minValue;
+    const liquid = `${base}~nmValue:gte:${minValue}`;
     const fBase = `${FINFO}/foreigns?q=tradingDate:${date}~floor:${floor}~type:STOCK`;
     const fFields = 'code,buyVal,sellVal,netVal,netVol';
 
@@ -174,8 +174,9 @@ export function getMarketMovers(floor = 'HOSE', size = 10) {
       fetchJson(`${liquid}&sort=pctChange:desc&size=${size}&fields=${priceFields}`),
       fetchJson(`${liquid}&sort=pctChange:asc&size=${size}&fields=${priceFields}`),
       fetchJson(`${base}&sort=nmValue:desc&size=${size}&fields=${priceFields}`),
-      fetchJson(`${fBase}~netVal:gt:0&sort=netVal:desc&size=${size}&fields=${fFields}`),
-      fetchJson(`${fBase}~netVal:lt:0&sort=netVal:asc&size=${size}&fields=${fFields}`),
+      // Lấy dư để còn đủ mã sau khi bỏ mã thanh khoản thấp
+      fetchJson(`${fBase}~netVal:gt:0&sort=netVal:desc&size=${size * 4}&fields=${fFields}`),
+      fetchJson(`${fBase}~netVal:lt:0&sort=netVal:asc&size=${size * 4}&fields=${fFields}`),
       // Toàn sàn: độ rộng thị trường và tổng giao dịch khối ngoại
       fetchJson(`${base}&size=3000&fields=pctChange,nmValue`),
       fetchJson(`${fBase}&size=3000&fields=buyVal,sellVal,netVal`),
@@ -210,8 +211,9 @@ export function getMarketMovers(floor = 'HOSE', size = 10) {
       gainers: gainers.data.map(stock),
       losers: losers.data.map(stock),
       topValue: value.data.map(stock),
-      foreignBuy: fBuy.data.map(foreign),
-      foreignSell: fSell.data.map(foreign),
+      foreignBuy: fBuy.data.map(foreign).filter((x) => x.value >= minValue).slice(0, size),
+      foreignSell: fSell.data.map(foreign).filter((x) => x.value >= minValue).slice(0, size),
+      minValue,
     };
   });
 }

@@ -45,7 +45,8 @@
       <div id="search-suggestions" class="search-dropdown" hidden></div>
     </div>
 
-    <button type="button" id="picks-btn" class="btn btn-primary btn-sm picks-btn" title="Danh sách cổ phiếu tiềm năng có thể mua">🔎 Cổ phiếu tiềm năng</button>
+    <button type="button" id="picks-btn" class="btn btn-primary btn-sm picks-btn" title="Danh sách cổ phiếu tiềm năng có thể mua">🔎 Tiềm năng</button>
+    <button type="button" id="sector-btn" class="btn btn-glass btn-sm picks-btn" title="Nhóm ngành nào đang được mua / bị bán nhiều và cổ phiếu dẫn dắt">🏭 Ngành</button>
     <button type="button" id="rank-btn" class="btn btn-glass btn-sm picks-btn" title="Bảng xếp hạng 4 yếu tố, backtest danh mục và độ chính xác các dự đoán">🎯 Xếp hạng</button>
     <button type="button" id="pf-btn" class="btn btn-glass btn-sm picks-btn" title="Danh mục đầu tư thực tế: lãi/lỗ, T+2, rủi ro, hành vi giao dịch">💼 Danh mục</button>
 
@@ -206,11 +207,7 @@
           <div class="side-title">
             <h2>Thị trường hôm nay</h2>
           </div>
-          <select id="movers-floor" class="movers-floor" aria-label="Chọn sàn giao dịch">
-            <option value="HOSE" selected>Sàn HOSE</option>
-            <option value="HNX">Sàn HNX</option>
-            <option value="UPCOM">Sàn UPCoM</option>
-          </select>
+          <span class="badge-subtle" title="Chỉ xét cổ phiếu sàn HOSE có giá trị giao dịch trong phiên ≥ 5 tỷ">HOSE · ≥ 5 tỷ</span>
         </div>
 
         <!-- Movers Tabs: Tăng mạnh, Giảm mạnh, Khối ngoại Mua, Khối ngoại Bán, Giá trị GD -->
@@ -227,7 +224,7 @@
           <div class="movers-empty">Đang tải số liệu thị trường…</div>
         </div>
 
-        <p class="movers-note">Số liệu phiên gần nhất (GTGD ≥ 1 tỷ). Bấm vào mã để phân tích chi tiết.</p>
+        <p class="movers-note">Số liệu phiên gần nhất, chỉ mã sàn HOSE có giá trị giao dịch ≥ 5 tỷ. Bấm vào mã để phân tích chi tiết.</p>
       </section>
 
       <div class="sidebar-footer">
@@ -358,9 +355,9 @@
           </div>
           <div id="pk-market" class="pk-market"></div>
           <p class="muted small pk-method">
-            Cách chọn: quét mọi mã <b>sàn HOSE</b> có giá trị giao dịch trung bình 20 phiên ≥ 5 tỷ/phiên → chấm kỹ thuật, cơ bản, khối ngoại và nhận diện
-            setup (bứt phá, xu hướng tăng, điều chỉnh về hỗ trợ, hồi phục từ quá bán, tích lũy, khối ngoại gom) → phân tích sâu kèm tin tức,
-            loại mã có tin rủi ro → Gemini đánh giá từng mã. Đây là sàng lọc theo dữ liệu, <b>không phải dự báo chắc chắn</b>.
+            Cách chọn: quét mọi mã <b>sàn HOSE</b> có giá trị giao dịch trung bình 20 phiên ≥ 5 tỷ/phiên → giữ các mã có
+            <b>điểm xếp hạng 4 yếu tố ≥ 70 và giá trên MA200</b> (nhóm duy nhất thắng VN-Index ổn định trong 4 năm kiểm chứng) →
+            phân tích sâu kèm tin tức, loại mã có tin rủi ro hoặc đang lỗ → Gemini đánh giá từng mã. Đây là sàng lọc theo dữ liệu, <b>không phải dự báo chắc chắn</b>.
           </p>
         </section>
         <div id="pk-list" class="pk-list"></div>
@@ -371,6 +368,42 @@
       </div>
 
       <!-- Loading State -->
+      <!-- Dòng tiền theo nhóm ngành -->
+      <div id="sectorview" class="picks-view" hidden>
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2 class="picks-title">🏭 Dòng tiền theo nhóm ngành</h2>
+              <div id="sc-sub" class="muted small"></div>
+            </div>
+            <div class="sc-controls">
+              <div class="seg" id="sc-period" role="group" aria-label="Khoảng thời gian">
+                <button data-p="1" class="on">Hôm nay</button><button data-p="5">5 phiên</button><button data-p="20">20 phiên</button>
+              </div>
+              <form id="sc-custom" class="sc-custom" title="Nhập số phiên bất kỳ từ 1 đến 60">
+                <input name="n" type="number" min="1" max="60" step="1" value="1" aria-label="Số phiên tùy chỉnh" required>
+                <span>phiên</span>
+                <button type="submit" class="btn btn-glass btn-xs">Xem</button>
+              </form>
+              <div class="seg" id="sc-sort" role="group" aria-label="Xếp theo">
+                <button data-s="net" class="on">Dòng tiền</button><button data-s="foreign">Khối ngoại</button>
+              </div>
+            </div>
+          </div>
+          <p class="muted small" style="margin:0;line-height:1.55">Chỉ xét cổ phiếu sàn HOSE có giá trị giao dịch TB 20 phiên ≥ 5 tỷ, phân ngành ICB.
+            <b>Dòng tiền ròng</b> là ước tính: giá trị khớp lệnh của các phiên cổ phiếu tăng giá trừ giá trị các phiên giảm giá
+            (nguồn công khai không có số liệu lệnh mua/bán chủ động). <b>Khối ngoại</b> là số liệu thật của sàn.</p>
+        </section>
+        <div class="sc-summary">
+          <section class="card sc-side sc-in"><h3>▲ Đang được mua mạnh</h3><div id="sc-top-in"></div></section>
+          <section class="card sc-side sc-out"><h3>▼ Đang bị bán mạnh</h3><div id="sc-top-out"></div></section>
+        </div>
+        <section class="card">
+          <div class="card-head"><h3>Tất cả nhóm ngành</h3><span class="muted small">Bấm vào một ngành để xem từng cổ phiếu</span></div>
+          <div id="sc-list"></div>
+        </section>
+      </div>
+
       <!-- Xếp hạng 4 yếu tố & độ chính xác dự đoán -->
       <div id="rankview" class="picks-view" hidden>
         <section class="card">
@@ -397,6 +430,8 @@
             <label><span>Số mã nắm giữ</span><input name="top" type="number" min="3" max="15" value="8"></label>
             <label><span>Tái cơ cấu (phiên)</span><input name="rebalance" type="number" min="5" max="60" step="5" value="20"></label>
             <label><span>Lọc trên MA200</span><select name="trend"><option value="1" selected>Có</option><option value="0">Không</option></select></label>
+            <label title="Khi VN-Index dưới MA200: giữ đủ mã / chỉ giữ nửa số mã / bán hết cầm tiền. Đã kiểm chứng: lọc thị trường làm giảm lợi nhuận mà không giảm sụt giảm, nên mặc định là Không."><span>Khi VN-Index yếu</span>
+              <select name="regime"><option value="none" selected>Vẫn đầy vốn</option><option value="half">Giữ nửa số mã</option><option value="cash">Cầm tiền</option></select></label>
             <button type="submit" class="btn btn-primary btn-sm" id="rk-run">▶ Chạy backtest</button>
           </form>
           <div id="rk-bt" style="margin-top:14px"></div>
@@ -487,11 +522,11 @@
             </div>
             <div class="rec-score-row">
               <div class="metric-pill">
-                <span class="pill-label">Tổng điểm</span>
-                <span class="pill-val"><b id="r-total"></b>/100</span>
+                <span class="pill-label">Điểm xếp hạng</span>
+                <span class="pill-val"><b id="r-total"></b></span>
               </div>
               <div class="metric-pill">
-                <span class="pill-label">Độ đồng thuận</span>
+                <span class="pill-label">Hạng trong rổ</span>
                 <span class="pill-val"><b id="r-conf"></b></span>
               </div>
             </div>
@@ -542,6 +577,7 @@
 
         <!-- Section 1: THẺ QUYẾT ĐỊNH MUA / BÁN (DECISION CARD) -->
         <div id="sec-decision" class="report-section active">
+          <section class="card brief-card" id="brief-card" aria-label="Tóm tắt nhanh"></section>
           <section class="card decision-card" id="decision-card">
             <div class="dc-top">
               <div class="dc-verdict-wrap">

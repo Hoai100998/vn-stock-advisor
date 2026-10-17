@@ -48,3 +48,24 @@ test('Chấm dự đoán sau 5/10/20 phiên so với VN-Index', () => {
   assert.equal(s[10].correct, false);
   assert.equal(scoreItem({ date: day(25), direction: 1 }, stock, index)[5], undefined); // chưa đủ phiên
 });
+
+test('Khuyến nghị theo điểm xếp hạng và bộ lọc chặn', async () => {
+  const { rankRecommendation } = await import('../src/analyze.js');
+  const r = (score, above = true) => ({ score, aboveMa200: above, position: 1, universe: 100 });
+  assert.equal(rankRecommendation(r(80)).code, 'BUY');
+  assert.equal(rankRecommendation(r(80, false)).code, 'AVOID'); // điểm cao nhưng dưới MA200
+  assert.equal(rankRecommendation(r(80), { flagged: true }).code, 'HOLD');
+  assert.equal(rankRecommendation(r(80), { losing: true }).code, 'HOLD');
+  assert.equal(rankRecommendation(r(80), { liquid: false }).code, 'ACCUMULATE');
+  assert.equal(rankRecommendation(r(50)).code, 'HOLD');
+  assert.equal(rankRecommendation(r(20)).code, 'AVOID');
+  assert.equal(rankRecommendation(r(20), { flagged: true }).code, 'SELL');
+});
+
+test('Bộ lọc thị trường: số mã nắm giữ theo trạng thái VN-Index', async () => {
+  const { regimeSlots } = await import('../src/ranking.js');
+  assert.equal(regimeSlots('none', true, 8), 8);
+  assert.equal(regimeSlots('half', true, 8), 4);
+  assert.equal(regimeSlots('cash', true, 8), 0);
+  assert.equal(regimeSlots('cash', false, 8), 8);
+});

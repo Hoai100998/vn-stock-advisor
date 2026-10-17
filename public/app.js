@@ -464,6 +464,8 @@ async function analyze(symbol) {
   $('pf-btn')?.classList.remove('on');
   $('rankview').hidden = true;
   $('rank-btn')?.classList.remove('on');
+  $('sectorview').hidden = true;
+  $('sector-btn')?.classList.remove('on');
   $('loading').hidden = false;
   $('loading-msg').textContent = `Đang phân tích ${symbol}…`;
   history.replaceState(null, '', `#${symbol}`);
@@ -543,8 +545,9 @@ function render(a) {
   const icon = { BUY: '▲', ACCUMULATE: '↗', HOLD: '●', AVOID: '↘', SELL: '▼' }[a.recommendation.code] || '●';
   rec.textContent = `${icon} ${a.recommendation.label}`;
 
-  $('r-total').textContent = signed(a.total, 0);
-  $('r-conf').textContent = `${a.recommendation.confidence}%`;
+  // Điểm chính là điểm xếp hạng 4 yếu tố; chỉ số (VN-Index…) không có xếp hạng thì dùng điểm cũ
+  $('r-total').textContent = a.ranking ? `${a.ranking.score}/100` : `${signed(a.total, 0)}/100`;
+  $('r-conf').textContent = a.ranking ? `${a.ranking.position}/${a.ranking.universe}` : `${a.recommendation.confidence}%`;
   $('r-desc').textContent = a.recommendation.desc;
 
   // Cảnh báo rủi ro
@@ -576,6 +579,7 @@ function render(a) {
   loadAi(a);
   resetBacktest(a);
   renderRankCard(a);
+  renderBrief(a);
   loadCommittee(a);
   updateAlertPresets(a.price.close);
 
@@ -605,8 +609,8 @@ function renderDecisionCard(a) {
   vEl.textContent = `${icon} ${a.recommendation.label}`;
 
   $('dc-meta').innerHTML = `
-    <span>Điểm: <b>${signed(a.total, 0)}/100</b></span>
-    <span>Độ đồng thuận: <b>${a.recommendation.confidence}%</b></span>
+    ${a.ranking ? `<span>Điểm xếp hạng: <b>${a.ranking.score}/100</b> · hạng <b>${a.ranking.position}/${a.ranking.universe}</b> · ${a.ranking.aboveMa200 === false ? '<span class="down">dưới MA200</span>' : '<span class="up">trên MA200</span>'}</span>` : `<span>Điểm: <b>${signed(a.total, 0)}/100</b></span>`}
+    ${a.legacy ? `<span class="muted">Điểm kiểu cũ: ${signed(a.total, 0)} (${esc(a.legacy.label)}, chỉ tham khảo)</span>` : ''}
     <span>Ngày: <b>${a.price.date}</b></span>
   `;
 
@@ -842,7 +846,7 @@ function renderScores(a) {
     const width = v == null ? 0 : Math.min(50, Math.abs(v) / 2);
     return `
       <div class="score-tile">
-        <div class="lbl"><span>${label}</span><span>Trọng số ${w}%</span></div>
+        <div class="lbl"><span>${label}</span><span>${a.ranking ? 'Điểm cũ · tham khảo' : `Trọng số ${w}%`}</span></div>
         <div class="val ${v == null ? 'muted' : dirClass(v)}">${v == null ? 'Không có dữ liệu' : signed(v, 0)}</div>
         <div class="dbar" role="img" aria-label="${label}: ${v ?? 'không có'} trên thang -100 đến 100">
           <div class="mid"></div>
@@ -1225,7 +1229,7 @@ function applyAiToDecision(a, ai) {
     : '<span class="down">⚠ Gemini và hệ thống ngược chiều, nên thận trọng</span>';
   $('dc-meta').innerHTML = `
     <span>Gemini: <b>${esc(ai.decisionLabel)}</b> · tin cậy <b>${ai.confidence}%</b></span>
-    <span>Hệ thống: <b>${esc(rec.label)}</b> (${signed(a.total, 0)} điểm)</span>
+    <span>Hệ thống: <b>${esc(rec.label)}</b> (${a.ranking ? `xếp hạng ${a.ranking.score}` : `${signed(a.total, 0)} điểm`})</span>
     <span>${agree}</span>
     ${ai.horizon ? `<span>Khung thời gian: <b>${esc(ai.horizon)}</b></span>` : ''}`;
   $('dc-headline').textContent = ai.headline || (ai.summary || '').split(/(?<=[.!?])\s/)[0];
@@ -1260,7 +1264,8 @@ $('decision-card')?.addEventListener('click', (e) => {
 const PICK_TONE = { MUA: 'up', MUA_THAM_DO: 'up', CHO_DIEM_MUA: 'ref', LOAI: 'down' };
 
 function showPicks() {
-  ['empty', 'error', 'report', 'loading', 'portfolio', 'rankview'].forEach((id) => ($(id).hidden = true));
+  ['empty', 'error', 'report', 'loading', 'portfolio', 'rankview', 'sectorview'].forEach((id) => ($(id).hidden = true));
+  $('sector-btn')?.classList.remove('on');
   $('pf-btn')?.classList.remove('on');
   $('rank-btn')?.classList.remove('on');
   $('picks').hidden = false;
@@ -1811,7 +1816,8 @@ $('cm-btn')?.addEventListener('click', async () => {
 
 // ---------- Danh mục đầu tư ----------
 function showPortfolio() {
-  ['empty', 'error', 'report', 'loading', 'picks', 'rankview'].forEach((id) => ($(id).hidden = true));
+  ['empty', 'error', 'report', 'loading', 'picks', 'rankview', 'sectorview'].forEach((id) => ($(id).hidden = true));
+  $('sector-btn')?.classList.remove('on');
   $('picks-btn')?.classList.remove('on');
   $('rank-btn')?.classList.remove('on');
   $('portfolio').hidden = false;
@@ -1992,7 +1998,8 @@ $('rank-card')?.addEventListener('click', (e) => {
 });
 
 function showRankView() {
-  ['empty', 'error', 'report', 'loading', 'picks', 'portfolio'].forEach((id) => ($(id).hidden = true));
+  ['empty', 'error', 'report', 'loading', 'picks', 'portfolio', 'sectorview'].forEach((id) => ($(id).hidden = true));
+  $('sector-btn')?.classList.remove('on');
   $('picks-btn')?.classList.remove('on');
   $('pf-btn')?.classList.remove('on');
   $('rankview').hidden = false;
@@ -2050,7 +2057,7 @@ function renderRankBacktest(r) {
   $('rk-bt').innerHTML = `
     <div class="bt-verdict tone-${beat ? 'up' : 'down'}">Danh mục top ${r.config.top} ${beat ? 'thắng' : 'thua'} VN-Index: ${pct(m.totalReturn)} so với ${pct(m.benchmarkReturn)}
       (rổ chia đều ${pct(r.equalWeight.totalReturn)}). Thắng chỉ số ${ac.periodsBeatIndex}/${ac.periods} kỳ, ${fmt((ac.picksBeatIndex / ac.picks) * 100, 0)}% số mã được chọn thắng chỉ số.</div>
-    <div class="muted small" style="margin:6px 0 12px">${r.period.from} → ${r.period.to} · ${r.config.universe} mã · tái cơ cấu mỗi ${r.config.rebalance} phiên · ${r.config.trendFilter ? 'có' : 'không'} lọc MA200 · vốn ${fmtBig(r.config.initialCash)}</div>
+    <div class="muted small" style="margin:6px 0 12px">${r.period.from} → ${r.period.to} · ${r.config.universe} mã · tái cơ cấu mỗi ${r.config.rebalance} phiên · ${r.config.trendFilter ? 'có' : 'không'} lọc MA200 · khi VN-Index yếu: ${{ none: 'vẫn đầy vốn', half: 'giữ nửa số mã', cash: 'cầm tiền' }[r.config.regime]} (${r.regime.bearPeriods}/${r.regime.periods} kỳ thị trường yếu, hiện tại ${r.regime.now === 'bear' ? '<span class="down">yếu</span>' : '<span class="up">tốt</span>'}) · vốn ${fmtBig(r.config.initialCash)}</div>
     <div class="ai-levels bt-kpis">
       ${kpi('Lợi nhuận', pct(m.totalReturn), dirClass(m.totalReturn))}
       ${kpi('Mỗi năm', pct(m.annualReturn), dirClass(m.annualReturn))}
@@ -2133,6 +2140,195 @@ $('pd-body')?.addEventListener('click', (e) => {
 });
 $('rank-btn')?.addEventListener('click', showRankView);
 
+// ---------- Tóm tắt nhanh mỗi mã ----------
+const BRIEF_ICON = { up: '▲', down: '▼', ref: '•' };
+
+function briefText(a) {
+  const b = a.brief, l = b.levels;
+  const lines = [`${a.symbol} — ${b.verdict} (${b.headline}) · giá ${fmt(a.price.close)} ngày ${a.price.date}`, `→ ${b.action}`];
+  if (b.plays) {
+    lines.push('Nếu CHƯA có cổ phiếu:', ...b.plays.newBuyer.map((x) => `  - ${x}`));
+    lines.push(`Nếu ĐANG nắm giữ:${b.plays.position ? ` (${b.plays.position})` : ''}`, ...b.plays.holder.map((x) => `  - ${x}`));
+  }
+  lines.push('Vì sao:');
+  for (const r of b.reasons) lines.push(`${BRIEF_ICON[r.tone]} ${r.text}`);
+  if (l) lines.push(`Vùng mua ${fmt(l.buyFrom)}–${fmt(l.buyTo)} · cắt lỗ ${fmt(l.stop)} (${pct(l.stopPct)}) · mục tiêu ${fmt(l.target)} (${pct(l.targetPct)})`);
+  if (b.risks.length) lines.push(`Rủi ro: ${b.risks.join('; ')}`);
+  return lines.join('\n');
+}
+
+function renderBrief(a) {
+  const el = $('brief-card');
+  const b = a.brief;
+  el.hidden = !b;
+  if (!b) return;
+  const l = b.levels;
+  const buying = b.code === 'BUY' || b.code === 'ACCUMULATE';
+  const lv = (k, v, sub = '', cls = '') => `<div class="bf-lv"><div class="k">${k}</div><div class="v ${cls}">${v}</div>${sub ? `<div class="p">${sub}</div>` : ''}</div>`;
+  const levels = l ? [
+    buying ? lv('Vùng mua', `${fmt(l.buyFrom)}–${fmt(l.buyTo)}`) : lv('Vùng theo dõi', `${fmt(l.buyFrom)}–${fmt(l.buyTo)}`),
+    lv(buying ? 'Cắt lỗ' : 'Ngưỡng phải giữ', fmt(l.stop), pct(l.stopPct), 'down'),
+    lv('Mục tiêu', fmt(l.target), pct(l.targetPct), 'up'),
+    buying ? lv('Tỷ trọng tối đa', l.weight != null ? `${Math.round(l.weight * 100)}% vốn` : '–', 'rủi ro 1% vốn') : lv('Lời / Lỗ', `${fmt(l.riskReward, 1)} lần`),
+  ].join('') : '';
+  el.className = `card brief-card tone-${b.tone}`;
+  el.innerHTML = `
+    <div class="bf-top">
+      <div class="bf-verdict ${b.tone}">${BRIEF_ICON[b.tone]} ${esc(b.verdict)}</div>
+      <div class="bf-main">
+        <div class="bf-action">${esc(b.action)}</div>
+        <div class="muted small">${esc(b.headline)} · giá ${fmt(a.price.close)} (${signed(a.price.changePct)}%) · phiên ${a.price.date}</div>
+      </div>
+      <button type="button" class="btn btn-glass btn-xs" id="bf-copy" title="Sao chép tóm tắt để gửi nhanh">📋 Sao chép</button>
+    </div>
+    ${b.plays ? `<div class="bf-plays">
+      <div class="bf-play${b.holding ? '' : ' mine'}">
+        <h4>🆕 Nếu chưa có cổ phiếu${b.holding ? '' : ' <span class="bf-you">trường hợp của bạn</span>'}</h4>
+        <ol>${b.plays.newBuyer.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>
+      </div>
+      <div class="bf-play${b.holding ? ' mine' : ''}">
+        <h4>💼 Nếu đang nắm giữ${b.holding ? ' <span class="bf-you">trường hợp của bạn</span>' : ''}</h4>
+        ${b.plays.position ? `<div class="bf-pos">${esc(b.plays.position)}</div>` : ''}
+        <ol>${b.plays.holder.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>
+      </div>
+    </div>` : ''}
+    <div class="bf-body">
+      <ul class="bf-reasons">${b.reasons.map((r) => `<li data-tone="${r.tone}"><span class="bf-ic" aria-hidden="true">${BRIEF_ICON[r.tone]}</span>${esc(r.text)}</li>`).join('')}</ul>
+      <div class="bf-levels">${levels}</div>
+    </div>
+    ${b.risks.length ? `<div class="bf-risks">⚠ ${b.risks.map(esc).join(' · ')}</div>` : ''}`;
+}
+
+$('brief-card')?.addEventListener('click', async (e) => {
+  if (e.target.id !== 'bf-copy' || !state.current?.brief) return;
+  try {
+    await navigator.clipboard.writeText(briefText(state.current));
+    showToast('Đã sao chép tóm tắt', 'success');
+  } catch {
+    showToast('Trình duyệt không cho phép sao chép', 'error');
+  }
+});
+
+// ---------- Dòng tiền theo nhóm ngành ----------
+const SC = { period: 1, sort: 'net', data: null, open: new Set() };
+const tỷ = (v) => (v == null ? '–' : `${signed(v / 1e9, Math.abs(v) >= 1e11 ? 0 : 1)} tỷ`);
+
+function showSectors() {
+  ['empty', 'error', 'report', 'loading', 'picks', 'portfolio', 'rankview'].forEach((id) => ($(id).hidden = true));
+  ['picks-btn', 'pf-btn', 'rank-btn'].forEach((id) => $(id)?.classList.remove('on'));
+  $('sectorview').hidden = false;
+  $('sector-btn')?.classList.add('on');
+  history.replaceState(null, '', '#nganh');
+  loadSectors();
+}
+
+async function loadSectors() {
+  $('sc-list').innerHTML = '<p class="muted">Đang tổng hợp dòng tiền theo ngành…</p>';
+  try {
+    SC.data = await api(`/api/sectors?period=${SC.period}`);
+    SC.period = SC.data.period; // máy chủ có thể giới hạn lại số phiên
+    renderSectors();
+  } catch (err) {
+    $('sc-list').innerHTML = `<p class="error">${esc(err.message)}</p>`;
+  }
+}
+
+const scValue = (s) => (SC.sort === 'foreign' ? (s.foreignNet ?? 0) : s.net);
+const periodLabel = () => (SC.period === 1 ? 'phiên gần nhất' : `${SC.period} phiên`);
+
+function renderSectors() {
+  const d = SC.data;
+  if (!d) return;
+  const sectors = [...d.sectors].sort((a, b) => scValue(b) - scValue(a));
+  const max = Math.max(...sectors.map((s) => Math.abs(scValue(s))), 1);
+  const label = SC.sort === 'foreign' ? 'Khối ngoại ròng' : 'Dòng tiền ròng';
+  $('sc-sub').textContent = `${periodLabel()} đến ${d.date} · ${d.universe} mã · ${d.sectors.length} ngành · tổng GTGD ${tỷ(d.market.value).replace('+', '')} · dòng tiền ròng ${tỷ(d.market.net)} · khối ngoại ${tỷ(d.market.foreignNet)}`;
+
+  // Cổ phiếu dẫn dắt theo chiều đang xem (mua/bán), ưu tiên theo cột đang xếp
+  const leaders = (s, dir) => {
+    const key = SC.sort === 'foreign' ? 'foreignNet' : 'net';
+    return [...s.stocks].filter((x) => (x[key] ?? 0) * dir > 0).sort((a, b) => dir * ((b[key] ?? 0) - (a[key] ?? 0))).slice(0, 3);
+  };
+  const side = (list, dir) => list.map((s) => `
+    <div class="sc-item" data-sector="${esc(s.name)}">
+      <div class="sc-item-head"><b>${esc(s.name)}</b><span class="${dirClass(scValue(s))}">${tỷ(scValue(s))}</span></div>
+      <div class="muted small">Giá ${pct(s.ret)} · GTGD ${tỷ(s.value).replace('+', '')} (${s.valueRatio != null ? `${fmt(s.valueRatio, 2)}× TB` : '–'}) · ${s.up}↑ ${s.down}↓</div>
+      <div class="sc-chips">${leaders(s, dir).map((x) => `<button type="button" class="sc-chip" data-sym="${x.symbol}" title="${label}: ${tỷ(SC.sort === 'foreign' ? x.foreignNet : x.net)} · giá ${pct(x.ret)}">${x.symbol} <span class="${dirClass(x.ret)}">${pct(x.ret)}</span></button>`).join('') || '<span class="muted small">–</span>'}</div>
+    </div>`).join('');
+  $('sc-top-in').innerHTML = side(sectors.filter((s) => scValue(s) > 0).slice(0, 5), 1) || '<p class="muted">Không có ngành nào có dòng tiền vào ròng.</p>';
+  $('sc-top-out').innerHTML = side([...sectors].reverse().filter((s) => scValue(s) < 0).slice(0, 5), -1) || '<p class="muted">Không có ngành nào bị bán ròng.</p>';
+
+  $('sc-list').innerHTML = `
+    <div class="sc-row sc-head"><span class="sc-name">Ngành</span><span class="sc-axis-label"><span>◀ Bán ròng</span><span>Mua ròng ▶</span></span><span>${label}</span><span>Giá</span><span>GTGD so TB</span><span>${SC.sort === 'foreign' ? 'Dòng tiền' : 'Khối ngoại'}</span></div>
+    ${sectors.map((s) => {
+      const v = scValue(s), w = (Math.abs(v) / max) * 50;
+      const other = SC.sort === 'foreign' ? s.net : s.foreignNet;
+      const open = SC.open.has(s.name);
+      return `
+      <div class="sc-row${open ? ' open' : ''}" data-sector="${esc(s.name)}" role="button" tabindex="0" aria-expanded="${open}"
+        title="${esc(s.name)} · ${label}: ${tỷ(v)} · GTGD ${tỷ(s.value).replace('+', '')} (${fmt(s.share * 100, 1)}% thị trường) · ${s.count} mã: ${s.up} tăng, ${s.down} giảm">
+        <span class="sc-name">${open ? '▾' : '▸'} ${esc(s.name)} <span class="muted small">${s.count}</span></span>
+        <span class="sc-bar" aria-hidden="true"><i class="${v >= 0 ? 'pos' : 'neg'}" style="${v >= 0 ? 'left:50%' : 'right:50%'};width:${w}%"></i></span>
+        <span class="${dirClass(v)}"><b>${tỷ(v)}</b></span>
+        <span class="${dirClass(s.ret)}">${pct(s.ret)}</span>
+        <span class="${s.valueRatio > 1.2 ? 'up' : s.valueRatio < 0.8 ? 'down' : ''}">${s.valueRatio != null ? `${fmt(s.valueRatio, 2)}×` : '–'}</span>
+        <span class="${dirClass(other)}">${tỷ(other)}</span>
+      </div>
+      ${open ? sectorStocks(s) : ''}`;
+    }).join('')}`;
+}
+
+function sectorStocks(s) {
+  return `<div class="sc-detail"><div class="tbl-wrap"><table class="tbl"><thead><tr>
+    <th>Mã</th><th>Giá</th><th>${SC.period === 1 ? 'Hôm nay' : `${SC.period} phiên`}</th><th>GTGD</th><th>So TB</th><th>Dòng tiền ròng</th><th>Khối ngoại ròng</th><th>Xếp hạng</th></tr></thead><tbody>
+    ${s.stocks.map((x) => `<tr>
+      <td><a href="#${x.symbol}" class="pf-sym" data-sym="${x.symbol}">${x.symbol}</a></td><td>${fmt(x.close)}</td>
+      <td class="${dirClass(x.ret)}">${pct(x.ret)}</td><td>${tỷ(x.value).replace('+', '')}</td>
+      <td class="${x.valueRatio > 1.2 ? 'up' : x.valueRatio < 0.8 ? 'down' : ''}">${x.valueRatio != null ? `${fmt(x.valueRatio, 2)}×` : '–'}</td>
+      <td class="${dirClass(x.net)}">${tỷ(x.net)}</td><td class="${dirClass(x.foreignNet)}">${tỷ(x.foreignNet)}</td>
+      <td class="${RANK_TONE[x.rankCode] || ''}">${x.rank ?? '–'}</td></tr>`).join('')}
+    </tbody></table></div></div>`;
+}
+
+function setSectorPeriod(n) {
+  SC.period = Math.min(60, Math.max(1, Math.round(n) || 1));
+  // Sáng nút có sẵn nếu trùng, ô nhập luôn hiện số phiên đang xem
+  document.querySelectorAll('#sc-period button').forEach((x) => x.classList.toggle('on', Number(x.dataset.p) === SC.period));
+  $('sc-custom').n.value = SC.period;
+  loadSectors();
+}
+$('sc-period')?.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (b) setSectorPeriod(Number(b.dataset.p));
+});
+$('sc-custom')?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const n = Number(e.target.n.value);
+  if (!(n >= 1 && n <= 60)) return showToast('Số phiên phải từ 1 đến 60', 'error');
+  setSectorPeriod(n);
+});
+$('sc-sort')?.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  SC.sort = b.dataset.s;
+  document.querySelectorAll('#sc-sort button').forEach((x) => x.classList.toggle('on', x === b));
+  renderSectors();
+});
+$('sectorview')?.addEventListener('click', (e) => {
+  const sym = e.target.closest('[data-sym]');
+  if (sym) { e.preventDefault(); analyze(sym.dataset.sym); return; }
+  const row = e.target.closest('[data-sector]');
+  if (!row) return;
+  const name = row.dataset.sector;
+  if (SC.open.has(name)) SC.open.delete(name); else SC.open.add(name);
+  renderSectors();
+  if (row.classList.contains('sc-item')) document.querySelector(`.sc-row[data-sector="${CSS.escape(name)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+});
+$('sectorview')?.addEventListener('keydown', (e) => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('sc-row')) { e.preventDefault(); e.target.click(); }
+});
+$('sector-btn')?.addEventListener('click', showSectors);
+
 // ---------- Khởi động ứng dụng ----------
 initTheme();
 loadMarket();
@@ -2148,6 +2344,8 @@ api('/api/ai/status').catch(() => ({ enabled: false })).then((s) => {
     showPortfolio();
   } else if (initial === 'xep-hang') {
     showRankView();
+  } else if (initial === 'nganh') {
+    showSectors();
   } else if (/^[A-Za-z0-9]{3,10}$/.test(initial)) {
     analyze(initial.toUpperCase());
   } else {

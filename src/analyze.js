@@ -1,13 +1,16 @@
 // Tổng hợp phân tích kỹ thuật + cơ bản + tin tức thành khuyến nghị.
-import { getPriceHistory, getFundamentals, getCompanyInfo, getForeignFlow, getMarketMovers } from './data.js';
+import { getPriceHistory, getFundamentals, getCompanyInfo, getForeignFlow, getMarketMovers, avgTradedValue, screenCriteria } from './data.js';
 import { getStockNews, getMarketNews, aggregateSentiment, attachPriceReaction, summarizeCategories } from './news.js';
 import { sma, rsi, macd, bollinger, atr, pctChange, stochastic, adx, mfi, obv, rsiDivergence } from './indicators.js';
 import { rankSymbol } from './ranking.js';
 import { recordMany } from './predictions.js';
+import { getSectorFlows } from './sectors.js';
+import { buildBrief } from './brief.js';
 
 const RULE_DIRECTION = { BUY: 1, ACCUMULATE: 1, HOLD: 0, AVOID: -1, SELL: -1 };
 
 export const INDEXES = new Set(['VNINDEX', 'VN30', 'HNXINDEX', 'HNX30', 'UPCOMINDEX']);
+const INDEX_FLOOR = { VNINDEX: 'HOSE', VN30: 'HOSE', HNXINDEX: 'HNX', HNX30: 'HNX', UPCOMINDEX: 'UPCOM' };
 
 const WEIGHTS = { technical: 0.4, fundamental: 0.35, news: 0.25 };
 
@@ -16,13 +19,39 @@ const RED_FLAGS = ['khởi tố', 'bắt giam', 'bị bắt', 'hủy niêm yết
   'thao túng', 'lừa đảo', 'phá sản', 'vỡ nợ', 'diện cảnh báo', 'diện kiểm soát', 'hạn chế giao dịch',
   'giải chấp', 'call margin'];
 
-const RECOMMENDATIONS = [
+export const RECOMMENDATIONS = [
   { min: 35, code: 'BUY', label: 'NÊN MUA', desc: 'Nhiều yếu tố cùng ủng hộ, có thể giải ngân theo kế hoạch.' },
   { min: 15, code: 'ACCUMULATE', label: 'CÂN NHẮC MUA', desc: 'Tín hiệu nghiêng về tích cực, có thể mua thăm dò với tỷ trọng nhỏ.' },
   { min: -15, code: 'HOLD', label: 'THEO DÕI', desc: 'Tín hiệu trái chiều, chưa có lợi thế rõ ràng. Chờ thêm xác nhận.' },
   { min: -35, code: 'AVOID', label: 'CHƯA NÊN MUA', desc: 'Nhiều yếu tố bất lợi, nên đứng ngoài.' },
   { min: -Infinity, code: 'SELL', label: 'TRÁNH / BÁN', desc: 'Tín hiệu tiêu cực mạnh. Người đang nắm giữ nên cân nhắc hạ tỷ trọng.' },
 ];
+
+const REC = Object.fromEntries(RECOMMENDATIONS.map((r) => [r.code, r]));
+
+/**
+ * Khuyến nghị dựa trên điểm xếp hạng 4 yếu tố (đã kiểm chứng: chỉ nhóm ≥ 70 và trên MA200 thắng VN-Index ổn định,
+ * trung bình +0,7–0,9% mỗi 20 phiên ở cả 2 nửa giai đoạn 2022–2026; nhóm ≥ 70 nhưng dưới MA200 thua 1–1,5%).
+ * Tin rủi ro, doanh nghiệp lỗ và thanh khoản thấp là bộ lọc chặn mua.
+ */
+export function rankRecommendation(r, { flagged = false, losing = false, liquid = true } = {}) {
+  const above = r.aboveMa200 !== false;
+  let rec;
+  if (r.score >= 70 && above) {
+    rec = { ...REC.BUY, desc: `Điểm xếp hạng ${r.score} (hạng ${r.position}/${r.universe}) và giá trên MA200: thuộc nhóm dẫn đầu. Trong 4 năm qua nhóm này vượt VN-Index trung bình 0,7–0,9% mỗi 20 phiên.` };
+    if (flagged) rec = { ...REC.HOLD, desc: 'Thuộc nhóm dẫn đầu nhưng có tin rủi ro nghiêm trọng trong 7 ngày: chờ làm rõ trước khi mua.' };
+    else if (losing) rec = { ...REC.HOLD, desc: 'Thuộc nhóm dẫn đầu về giá nhưng doanh nghiệp đang lỗ 4 quý gần nhất: chỉ theo dõi.' };
+    else if (!liquid) rec = { ...REC.ACCUMULATE, desc: 'Thuộc nhóm dẫn đầu nhưng thanh khoản dưới ngưỡng 5 tỷ/phiên: chỉ mua tỷ trọng nhỏ.' };
+  } else if (r.score >= 70) {
+    rec = { ...REC.AVOID, desc: `Điểm xếp hạng cao (${r.score}) nhưng giá dưới MA200: lịch sử nhóm này thua VN-Index 1–1,5% mỗi 20 phiên, chỉ ~40% số lần thắng. Chờ giá vượt MA200.` };
+  } else if (r.score >= 30) {
+    rec = { ...REC.HOLD, desc: `Điểm xếp hạng ${r.score} (hạng ${r.position}/${r.universe}): nhóm giữa, chưa có lợi thế rõ so với thị trường.` };
+  } else {
+    rec = { ...REC.AVOID, desc: `Điểm xếp hạng ${r.score} (hạng ${r.position}/${r.universe}): nhóm đội sổ về động lượng, xu hướng và độ ổn định.` };
+  }
+  if (r.score < 30 && (flagged || losing)) rec = { ...REC.SELL, desc: `Nhóm đội sổ (điểm ${r.score}) kèm ${flagged ? 'tin rủi ro nghiêm trọng' : 'doanh nghiệp đang lỗ'}: người đang nắm giữ nên cân nhắc hạ tỷ trọng.` };
+  return rec;
+}
 
 const clamp = (v, lo = -100, hi = 100) => Math.max(lo, Math.min(hi, v));
 const last = (arr) => arr[arr.length - 1];
@@ -382,7 +411,14 @@ export async function analyzeSymbol(symbol, { withChart = true } = {}) {
   symbol = String(symbol).trim().toUpperCase();
   if (!/^[A-Z0-9]{3,10}$/.test(symbol)) throw new Error('Mã chứng khoán không hợp lệ');
   const isIndex = INDEXES.has(symbol);
+  const { floors } = screenCriteria();
+  // Chỉ số của sàn không được theo dõi (HNX-Index, UPCoM-Index) cũng bị chặn
+  if (isIndex && !floors.some((f) => INDEX_FLOOR[symbol] === f)) {
+    throw new Error(`Tool chỉ theo dõi sàn ${floors.join(', ')}: không phân tích ${symbol}`);
+  }
 
+  // Dòng tiền ngành 5 phiên: chạy song song, dùng cho phần tóm tắt nhanh
+  const sectorP = isIndex ? null : getSectorFlows(5).catch(() => null);
   const [priceRes, info, fund, market, indexRes, foreign, movers] = await Promise.all([
     getPriceHistory(symbol).catch((err) => err),
     isIndex ? null : getCompanyInfo(symbol).catch(() => undefined),
@@ -394,6 +430,9 @@ export async function analyzeSymbol(symbol, { withChart = true } = {}) {
   ]);
   // null = API trả về rỗng (mã không tồn tại); undefined = API lỗi, vẫn thử tiếp
   if (!isIndex && info === null) throw new Error(`Không tìm thấy mã ${symbol}`);
+  if (!isIndex && info?.exchange && !floors.includes(info.exchange)) {
+    throw new Error(`${symbol} niêm yết trên sàn ${info.exchange}. Tool chỉ phân tích cổ phiếu sàn ${floors.join(', ')} (đổi SCREEN_FLOORS trong .env nếu muốn mở rộng).`);
+  }
   if (priceRes instanceof Error) throw priceRes;
 
   const { bars, source } = priceRes;
@@ -462,11 +501,15 @@ export async function analyzeSymbol(symbol, { withChart = true } = {}) {
   }
   if (ind.rsi14 != null && ind.rsi14 > 80) warnings.push('RSI trên 80: giá đang hưng phấn, không nên mua đuổi.');
 
-  let rec = RECOMMENDATIONS.find((r) => total >= r.min);
-  // Có tin rủi ro nghiêm trọng thì không khuyến nghị mua
-  if (flagged.length && (rec.code === 'BUY' || rec.code === 'ACCUMULATE')) {
-    rec = { ...RECOMMENDATIONS.find((r) => r.code === 'HOLD'), desc: 'Điểm số tích cực nhưng bị hạ xuống THEO DÕI do có tin rủi ro nghiêm trọng.' };
+  // Khuyến nghị cũ theo tổng điểm: giữ để tham khảo và so sánh trong nhật ký dự đoán
+  let legacyRec = RECOMMENDATIONS.find((r) => total >= r.min);
+  if (flagged.length && (legacyRec.code === 'BUY' || legacyRec.code === 'ACCUMULATE')) {
+    legacyRec = { ...RECOMMENDATIONS.find((r) => r.code === 'HOLD'), desc: 'Điểm số tích cực nhưng bị hạ xuống THEO DÕI do có tin rủi ro nghiêm trọng.' };
   }
+  const value20 = avgTradedValue(bars);
+  const rec = ranking
+    ? rankRecommendation(ranking, { flagged: flagged.length > 0, losing: fa.data?.epsTTM != null && fa.data.epsTTM <= 0, liquid: value20 >= screenCriteria().minValue })
+    : legacyRec;
 
   // Độ tin cậy: các nhóm có cùng chiều với tổng điểm hay không
   const available = Object.values(parts).filter((v) => v != null);
@@ -487,7 +530,9 @@ export async function analyzeSymbol(symbol, { withChart = true } = {}) {
       changePct: round(((lastBar.close - prevBar.close) / prevBar.close) * 100),
     },
     total,
-    recommendation: { code: rec.code, label: rec.label, desc: rec.desc, confidence },
+    recommendation: { code: rec.code, label: rec.label, desc: rec.desc, confidence, basis: ranking ? 'rank' : 'legacy' },
+    legacy: { total, code: legacyRec.code, label: legacyRec.label },
+    value20: Math.round(value20),
     scores: parts,
     weights: WEIGHTS,
     technical: { score: tech.score, signals: tech.signals, indicators: tech.indicators },
@@ -511,9 +556,22 @@ export async function analyzeSymbol(symbol, { withChart = true } = {}) {
   // Ghi dự đoán để tự chấm đúng/sai sau 5/10/20 phiên
   if (!isIndex) {
     recordMany([
-      { source: 'rule', symbol, date: lastBar.time, direction: RULE_DIRECTION[rec.code], label: rec.label, price: lastBar.close, detail: `Điểm ${total}` },
+      { source: 'rule', symbol, date: lastBar.time, direction: RULE_DIRECTION[rec.code], label: rec.label, price: lastBar.close, detail: ranking ? `Xếp hạng ${ranking.score}` : `Điểm ${total}` },
       ranking && { source: 'rank', symbol, date: lastBar.time, direction: ranking.direction, label: ranking.label, price: lastBar.close, detail: `Điểm xếp hạng ${ranking.score}` },
     ].filter(Boolean));
+  }
+
+  // Tóm tắt nhanh: kết luận, việc nên làm, lý do ngắn, mức giá, rủi ro
+  if (!isIndex) {
+    const flows = await sectorP;
+    const k = flows?.sectors.findIndex((s) => s.stocks.some((x) => x.symbol === symbol)) ?? -1;
+    result.sector = k >= 0 ? {
+      name: flows.sectors[k].name, net: flows.sectors[k].net, rank: k + 1, total: flows.sectors.length, period: flows.period,
+    } : null;
+    // Nạp khi cần để tránh vòng lặp import analyze → portfolio → backtest → analyze
+    const { getHolding } = await import('./portfolio.js');
+    result.holding = await getHolding(symbol, lastBar.close).catch(() => null);
+    result.brief = buildBrief(result, result.sector, result.holding);
   }
 
   if (withChart) {
@@ -544,6 +602,7 @@ export function summarize(a) {
     foreignNet5: a.foreign?.net5 ?? null,
     pe: a.fundamental.data?.pe ?? null,
     rankScore: a.ranking?.score ?? null,
+    legacy: a.legacy ?? null,
     newsCount: a.news.count,
     warnings: a.warnings.length,
     updatedAt: a.updatedAt,

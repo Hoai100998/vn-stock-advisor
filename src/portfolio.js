@@ -5,7 +5,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getPriceHistory } from './data.js';
+import { getPriceHistory, getCompanyInfo, screenCriteria } from './data.js';
 import { technicalAnalysis } from './analyze.js';
 import { DEFAULTS, maxDrawdown } from './backtest.js';
 import { alignReturns, stdev, historicalVar, historicalCvar, correlation, beta } from './risk.js';
@@ -172,6 +172,27 @@ export function riskXray(holdings, bars, indexBars) {
   return out;
 }
 
+/**
+ * Vị thế đang nắm giữ của một mã (null nếu không có): số lượng, giá vốn, lãi/lỗ tạm tính, số bán được ngay.
+ * Dùng cho phần "nếu đang nắm giữ" trong tóm tắt mỗi mã.
+ */
+export async function getHolding(symbol, close = null) {
+  await load();
+  if (!state.transactions.some((t) => t.symbol === symbol)) return null;
+  const p = buildPositions(state.transactions).positions.find((x) => x.symbol === symbol && x.qty > 0);
+  if (!p) return null;
+  const sessions = (await getPriceHistory('VNINDEX').catch(() => null))?.bars.map((b) => b.time) || [];
+  const pending = Math.min(p.qty, pendingQty(p.lots, sessions));
+  const avgCost = p.cost / p.qty / 1000;
+  const net = close != null ? p.qty * close * 1000 * (1 - BROKERAGE - SELL_TAX) : null;
+  return {
+    qty: p.qty, sellable: p.qty - pending, pending,
+    avgCost: round(avgCost, 3), openedAt: p.openedAt,
+    pnl: net != null ? Math.round(net - p.cost) : null,
+    pnlPct: net != null ? round(net / p.cost - 1, 4) : null,
+  };
+}
+
 /** Báo cáo danh mục đầy đủ cho giao diện. */
 export async function getPortfolio() {
   await load();
@@ -244,6 +265,11 @@ export async function addTransaction(body) {
   if (!(price > 0 && price < 10_000)) throw new Error('Giá không hợp lệ (đơn vị nghìn đồng, ví dụ 58.2)');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) throw new Error('Ngày không hợp lệ (YYYY-MM-DD)');
   if (Date.parse(date) > Date.now() + DAY) throw new Error('Ngày giao dịch không được ở tương lai');
+
+  const { floors } = screenCriteria();
+  const info = await getCompanyInfo(symbol).catch(() => undefined);
+  if (info === null) throw new Error(`Không tìm thấy mã ${symbol}`);
+  if (info?.exchange && !floors.includes(info.exchange)) throw new Error(`${symbol} niêm yết trên sàn ${info.exchange}. Tool chỉ theo dõi cổ phiếu sàn ${floors.join(', ')}.`);
 
   const seq = (state.transactions.reduce((m, t) => Math.max(m, t.seq || 0), 0)) + 1;
   const tx = { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, seq, type, symbol, qty, price, date, note: String(body.note || '').slice(0, 200) };

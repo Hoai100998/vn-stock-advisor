@@ -128,7 +128,8 @@ export async function triggerTestAlert(symbol = 'FPT', message = null) {
 /** So sánh kết quả mới với lần quét trước và sinh cảnh báo. */
 function checkAlerts(entry, prev, cur) {
   const { symbol } = cur;
-  if (prev && prev.recommendation.code !== cur.recommendation.code) {
+  // Không báo khi chỉ đổi cách tính (điểm cũ → điểm xếp hạng)
+  if (prev && prev.recommendation.code !== cur.recommendation.code && prev.recommendation.basis === cur.recommendation.basis) {
     addAlert(symbol, 'recommendation',
       `Khuyến nghị đổi từ ${prev.recommendation.label} sang ${cur.recommendation.label} (điểm ${prev.total} → ${cur.total})`);
   }

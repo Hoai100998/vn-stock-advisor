@@ -7,13 +7,15 @@ import { fileURLToPath } from 'node:url';
 import { analyzeSymbol, getMarketOverview } from './src/analyze.js';
 import { aiConfig } from './src/ai.js';
 import { testProviders } from './src/llm.js';
-import { getMarketMovers, FLOORS } from './src/data.js';
+import { getMarketMovers, screenCriteria } from './src/data.js';
 import { getScreener, startScreener, rerunScreenerAi, startScreenerSchedule } from './src/screener.js';
 import { runBacktest, listStrategies } from './src/backtest.js';
 import { startCommittee, getCommittee } from './src/committee.js';
 import { getPortfolio, addTransaction, removeTransaction } from './src/portfolio.js';
 import { getRankBoard, runRankPortfolio } from './src/ranking.js';
 import { evaluatePredictions } from './src/predictions.js';
+import { startHistorySchedule, listSnapshots } from './src/history.js';
+import { getSectorFlows } from './src/sectors.js';
 import {
   getWatchlist, addToWatchlist, removeFromWatchlist, scanWatchlist,
   getAlerts, markAlertsRead, startMonitor, runAi, getAiResult, triggerTestAlert,
@@ -57,10 +59,11 @@ const routes = [
   ['GET', /^\/api\/screener$/, async (req, res) => send(res, 200, await getScreener())],
   ['POST', /^\/api\/screener\/run$/, async (req, res) => send(res, 200, await startScreener())],
   ['POST', /^\/api\/screener\/ai$/, async (req, res) => send(res, 200, await rerunScreenerAi())],
-  // Top tăng/giảm, giá trị giao dịch, khối ngoại mua/bán ròng: /api/movers?floor=HOSE|HNX|UPCOM
+  // Top tăng/giảm, giá trị giao dịch, khối ngoại mua/bán ròng của sàn được theo dõi (mặc định HOSE): /api/movers?floor=HOSE
   ['GET', /^\/api\/movers$/, async (req, res) => {
     const floor = (new URL(req.url, 'http://localhost').searchParams.get('floor') || 'HOSE').toUpperCase();
-    if (!FLOORS.includes(floor)) return send(res, 400, { error: 'Sàn không hợp lệ (HOSE, HNX, UPCOM)' });
+    const { floors } = screenCriteria();
+    if (!floors.includes(floor)) return send(res, 400, { error: `Tool chỉ theo dõi sàn ${floors.join(', ')}` });
     send(res, 200, await getMarketMovers(floor));
   }],
   ['GET', /^\/api\/ai\/status$/, async (req, res) => send(res, 200, aiConfig())],
@@ -101,9 +104,15 @@ const routes = [
   }],
   ['GET', /^\/api\/rank\/backtest$/, async (req, res) => {
     const q = Object.fromEntries(new URL(req.url, 'http://localhost').searchParams);
-    send(res, 200, await runRankPortfolio({ years: q.years, top: q.top, rebalance: q.rebalance, trendFilter: q.trend, initialCash: q.cash }));
+    send(res, 200, await runRankPortfolio({ years: q.years, top: q.top, rebalance: q.rebalance, trendFilter: q.trend, regime: q.regime, initialCash: q.cash }));
   }],
   ['GET', /^\/api\/predictions$/, async (req, res) => send(res, 200, await evaluatePredictions())],
+  ['GET', /^\/api\/history$/, async (req, res) => send(res, 200, { dates: await listSnapshots() })],
+  // Dòng tiền theo nhóm ngành: /api/sectors?period=1|5|20
+  ['GET', /^\/api\/sectors$/, async (req, res) => {
+    const period = new URL(req.url, 'http://localhost').searchParams.get('period') || '1';
+    send(res, 200, await getSectorFlows(period));
+  }],
   // Danh mục đầu tư thực tế
   ['GET', /^\/api\/portfolio$/, async (req, res) => send(res, 200, await getPortfolio())],
   ['POST', /^\/api\/portfolio\/tx$/, async (req, res) => {
@@ -180,8 +189,10 @@ server.listen(PORT, '127.0.0.1', () => {
   // Tải trước bảng top cổ phiếu HOSE để lần mở trang đầu không phải chờ
   getMarketMovers('HOSE').catch(() => {});
   // Tính bảng xếp hạng ngay và mỗi 30 phút (đồng thời ghi top 8 vào nhật ký dự đoán)
-  getRankBoard().catch(() => {});
+  getRankBoard().then(() => getSectorFlows(5)).catch(() => {});
   setInterval(() => getRankBoard().catch(() => {}), 30 * 60_000);
+  // Ảnh chụp dữ liệu cuối ngày toàn bộ rổ + ghi dự đoán để tự chấm
+  startHistorySchedule();
   // Quét cổ phiếu tiềm năng mỗi ngày giao dịch sau 15:10
   startScreenerSchedule();
 });
