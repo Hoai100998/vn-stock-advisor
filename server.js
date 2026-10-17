@@ -88,14 +88,15 @@ const routes = [
       stopLossPct: q.stop, takeProfitPct: q.take, positionPct: q.position, initialCash: q.cash,
     }));
   }],
-  // Hội đồng đầu tư (phe mua / phe bán / giám đốc đầu tư): POST bắt đầu, GET xem tiến độ và kết quả
+  // Quy trình quyết định: Gemini → phe mua / phe bán → giám đốc đầu tư. POST bắt đầu ({ force }), GET xem tiến độ và kết quả
   ['GET', /^\/api\/committee\/([^/]+)$/, async (req, res, [sym]) => {
     if (!SYMBOL_RE.test(sym)) return send(res, 400, { error: 'Mã chứng khoán không hợp lệ' });
     send(res, 200, await getCommittee(sym));
   }],
   ['POST', /^\/api\/committee\/([^/]+)$/, async (req, res, [sym]) => {
     if (!SYMBOL_RE.test(sym)) return send(res, 400, { error: 'Mã chứng khoán không hợp lệ' });
-    send(res, 200, await startCommittee(sym));
+    const { force } = await readBody(req).catch(() => ({}));
+    send(res, 200, await startCommittee(sym, { force: Boolean(force) }));
   }],
   // Xếp hạng 4 yếu tố, backtest danh mục top N, độ chính xác của các dự đoán đã ghi
   ['GET', /^\/api\/rank$/, async (req, res) => {
@@ -104,7 +105,7 @@ const routes = [
   }],
   ['GET', /^\/api\/rank\/backtest$/, async (req, res) => {
     const q = Object.fromEntries(new URL(req.url, 'http://localhost').searchParams);
-    send(res, 200, await runRankPortfolio({ years: q.years, top: q.top, rebalance: q.rebalance, trendFilter: q.trend, regime: q.regime, initialCash: q.cash }));
+    send(res, 200, await runRankPortfolio({ years: q.years, top: q.top, rebalance: q.rebalance, buffer: q.buffer, trendFilter: q.trend, regime: q.regime, initialCash: q.cash }));
   }],
   ['GET', /^\/api\/predictions$/, async (req, res) => send(res, 200, await evaluatePredictions())],
   ['GET', /^\/api\/history$/, async (req, res) => send(res, 200, { dates: await listSnapshots() })],

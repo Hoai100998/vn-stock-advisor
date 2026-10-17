@@ -429,6 +429,8 @@
             <label><span>Số năm</span><select name="years"><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option></select></label>
             <label><span>Số mã nắm giữ</span><input name="top" type="number" min="3" max="15" value="8"></label>
             <label><span>Tái cơ cấu (phiên)</span><input name="rebalance" type="number" min="5" max="60" step="5" value="20"></label>
+            <label title="Giữ mã đang nắm khi còn trong top (hệ số × N) thay vì đổi hẳn về top N. Đã thử: kết quả dao động mạnh theo cấu hình, chưa tốt hơn ổn định so với không đệm."><span>Giữ mã đang thắng</span>
+              <select name="buffer"><option value="1" selected>Không (luôn đổi về top N)</option><option value="1.5">Còn trong top 1,5×N</option><option value="2">Còn trong top 2×N</option><option value="3">Còn trong top 3×N</option></select></label>
             <label><span>Lọc trên MA200</span><select name="trend"><option value="1" selected>Có</option><option value="0">Không</option></select></label>
             <label title="Khi VN-Index dưới MA200: giữ đủ mã / chỉ giữ nửa số mã / bán hết cầm tiền. Đã kiểm chứng: lọc thị trường làm giảm lợi nhuận mà không giảm sụt giảm, nên mặc định là Không."><span>Khi VN-Index yếu</span>
               <select name="regime"><option value="none" selected>Vẫn đầy vốn</option><option value="half">Giữ nửa số mã</option><option value="cash">Cầm tiền</option></select></label>
@@ -579,35 +581,8 @@
         <div id="sec-decision" class="report-section active">
           <section class="card brief-card" id="brief-card" aria-label="Tóm tắt nhanh"></section>
           <section class="card decision-card" id="decision-card">
-            <div class="dc-top">
-              <div class="dc-verdict-wrap">
-                <div class="dc-verdict" id="dc-verdict"></div>
-                <div class="dc-meta" id="dc-meta"></div>
-              </div>
-              <p class="dc-headline" id="dc-headline"></p>
-              <div class="dc-ai-status" id="dc-ai-status"></div>
-            </div>
-
+            <h3 class="dc-title">Căn cứ chi tiết <span class="muted small">· dòng tiền, khối ngoại, luận điểm mua và rủi ro</span></h3>
             <div class="dc-grid">
-              <!-- Cột Hành động Mua / Bán -->
-              <div class="dc-box">
-                <h4>Hành động Khuyến nghị</h4>
-                <div class="dc-act">
-                  <b>Nếu chưa có cổ phiếu (Giải ngân):</b>
-                  <span id="dc-act-new"></span>
-                </div>
-                <div class="dc-act">
-                  <b>Nếu đang nắm giữ (Chốt lời / Quản trị rủi ro):</b>
-                  <span id="dc-act-hold"></span>
-                </div>
-              </div>
-
-              <!-- Cột Mức giá then chốt (Vùng mua, cắt lỗ, mục tiêu) -->
-              <div class="dc-box">
-                <h4>Các Mức Giá Then Chốt</h4>
-                <div class="dc-levels" id="dc-levels"></div>
-              </div>
-
               <!-- Dòng tiền & Khối ngoại mua/bán trong phiên -->
               <div class="dc-box">
                 <h4>Dòng tiền & Khối ngoại (Phiên gần nhất)</h4>
@@ -747,7 +722,7 @@
             <div class="card-head">
               <div>
                 <h3>Hội đồng đầu tư <span class="muted small">· phe mua ⇄ phe bán → giám đốc đầu tư</span></h3>
-                <div class="muted small">3 chuyên viên Gemini tranh luận trên cùng dữ liệu, có căn cứ backtest 3 năm và rủi ro lịch sử. Tốn 3 lượt gọi Gemini.</div>
+                <div class="muted small">Bước bắt buộc trước quyết định cuối: Gemini phân tích 6 yếu tố thị trường, sau đó phe mua và phe bán tranh luận (có căn cứ backtest 3 năm, rủi ro lịch sử), giám đốc đầu tư ra quyết định và lập kế hoạch cho người đang nắm giữ. Tốn 4 lượt gọi AI, tự chạy mỗi phiên.</div>
               </div>
               <button type="button" id="cm-btn" class="btn btn-primary btn-sm">⚖️ Triệu tập hội đồng</button>
             </div>

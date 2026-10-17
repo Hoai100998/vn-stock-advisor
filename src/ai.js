@@ -189,6 +189,7 @@ function buildPrompt(a) {
     lines.push(`Điểm ${r.score}/100, hạng ${r.position}/${r.universe} trong rổ HOSE thanh khoản ≥ 5 tỷ; giá ${r.aboveMa200 === false ? 'DƯỚI' : 'trên'} MA200. Phân vị: động lượng 12 tháng ${r.parts.mom ?? 'n/a'}, gần đỉnh 52 tuần ${r.parts.high ?? 'n/a'}, biến động thấp ${r.parts.atr ?? 'n/a'}, ADX ${r.parts.adx ?? 'n/a'}.`);
     lines.push(`Khuyến nghị hệ thống: ${a.recommendation.label} — ${a.recommendation.desc}`);
     lines.push('Bằng chứng lịch sử 2022–2026: chỉ nhóm điểm ≥ 70 và trên MA200 thắng VN-Index ổn định (+0,7–0,9%/20 phiên); nhóm ≥ 70 nhưng dưới MA200 thua 1–1,5%; các nhóm khác không có lợi thế.');
+    lines.push(`Hạng trong nhóm trên MA200: ${r.pfRank ?? 'không thuộc nhóm (dưới MA200)'}. Danh mục mẫu của hệ thống là top 8 mã trên MA200, đổi mỗi 20 phiên; từng mã được chọn chỉ thắng VN-Index ~51% số lần trong lịch sử, lợi thế đến từ cả rổ và kỷ luật cắt lỗ, và 12 tháng gần nhất danh mục này thua VN-Index.`);
   }
   lines.push('\n## Điểm kỹ thuật/cơ bản/tin tức kiểu cũ (−100..100) — CHỈ THAM KHẢO: đã kiểm chứng KHÔNG dự báo được hướng giá');
   lines.push(`Tổng ${a.total} (${a.legacy?.label ?? ''}). Kỹ thuật ${a.scores.technical}, cơ bản ${a.scores.fundamental ?? 'n/a'}, tin tức ${a.scores.news ?? 'n/a'}.`);

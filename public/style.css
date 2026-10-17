@@ -2008,6 +2008,7 @@ body.focus-mode .detail-only { display: none !important; }
 .decision-card.tone-down { border-top: 4px solid var(--down); }
 .decision-card.tone-ref { border-top: 4px solid var(--ref); }
 .dc-top { display: flex; flex-direction: column; gap: 8px; }
+.dc-title { margin: 0 0 4px; font-size: 15px; }
 .dc-verdict-wrap { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .dc-verdict {
   font-size: 26px; font-weight: 800; letter-spacing: .01em;
@@ -2486,10 +2487,20 @@ body.focus-mode .detail-only { display: none !important; }
 .bf-play ol { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.5; }
 .bf-play li { margin: 2px 0; }
 .bf-pos { font-size: 12.5px; font-family: var(--font-mono); background: var(--accent-bg); border-radius: var(--radius-sm); padding: 5px 8px; margin-bottom: 6px; }
+.bf-holder { font-size: 13px; background: var(--surface-2, var(--accent-bg)); border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 8px; display: grid; gap: 5px; }
+.bf-holdview { color: var(--ink-2); }
+.bf-noadd { margin: 0; padding-left: 18px; color: var(--down-text); font-size: 12.5px; }
 
 /* Kế hoạch mua – bán từng bước */
-.bf-cap { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
-.bf-cap input { width: 80px; padding: 4px 8px; font-family: var(--font-mono); }
+.bf-capbox { border: 1px solid var(--border, var(--surface-3)); border-radius: var(--radius-sm); padding: 10px 12px; margin: 10px 0; background: var(--surface-2); display: grid; gap: 8px; }
+.cap-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.cap-input { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+.cap-input input { width: 110px; padding: 5px 8px; font-family: var(--font-mono); font-size: 14px; font-weight: 700; }
+.cap-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.cap-chips .on { outline: 2px solid var(--accent); }
+.cap-rows { display: grid; grid-template-columns: minmax(130px, max-content) 1fr; gap: 5px 14px; font-size: 13px; }
+.cap-k { color: var(--ink-2); }
+@media (max-width: 560px) { .cap-rows { grid-template-columns: 1fr; } .cap-k { font-weight: 700; margin-top: 4px; } }
 .st-table td { white-space: normal; vertical-align: top; }
 .st-table .st-n { color: var(--muted); width: 18px; }
 .st-table .st-zone { white-space: nowrap; font-weight: 700; }

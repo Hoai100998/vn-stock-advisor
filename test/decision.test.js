@@ -29,3 +29,38 @@ test('Quyết định cuối: kế hoạch mua/bán tính lại theo mức đã 
   assert.equal(f.steps.fresh[0].side, 'wait'); // không còn bước mua ngay
   assert.match(f.action, /Không mua mới/);
 });
+
+test('Kế hoạch người đang nắm giữ: chặn mua thêm khi quyết định cuối không phải mua', async () => {
+  const { holderPlan } = await import('../src/decision.js');
+  const plan = {
+    holdView: 'Giữ, xu hướng còn tốt.', addMore: 'MUA_THEM', addReason: 'Trên MA200.',
+    addZones: [{ from: 20.2, to: 20.6, percentOfHolding: 30, condition: 'giữ được hỗ trợ' }],
+    noAddZones: [{ side: 'TREN', price: 21.5, reason: 'sát kháng cự' }],
+    sellSteps: [{ kind: 'CHOT_LOI', price: 22.2, percentOfHolding: 50, condition: 'chạm kháng cự 2' }],
+    stopLoss: 19.8,
+  };
+  const holding = { qty: 1000, avgCost: 19, sellable: 1000, pending: 0 };
+  const ok = holderPlan('BUY', plan, { close: 20.9, stop: 19.85, holding });
+  assert.equal(ok.addMore, 'MUA_THEM');
+  assert.deepEqual(ok.steps.map((s) => [s.side, s.shares]), [['buy', 300], ['sell', 500], ['stop', 1000]]);
+  assert.equal(ok.noAdd[0].price, 21.5);
+
+  const no = holderPlan('AVOID', plan, { close: 20.9, stop: 19.85, holding });
+  assert.equal(no.addMore, 'KHONG_MUA_THEM');
+  assert.ok(no.blocked);
+  assert.ok(!no.steps.some((s) => s.side === 'buy'));
+});
+
+test('Kế hoạch người đang nắm giữ: không bình quân giá xuống, loại giá vô lý, bán dưới giá vốn là hạ tỷ trọng', async () => {
+  const { holderPlan } = await import('../src/decision.js');
+  const plan = {
+    addMore: 'MUA_THEM_CO_DIEU_KIEN', addReason: '', holdView: '',
+    addZones: [{ from: 20, to: 20.4, percentOfHolding: 20, condition: 'về hỗ trợ' }, { from: 5, to: 6, percentOfHolding: 20, condition: 'sai' }],
+    noAddZones: [], sellSteps: [{ kind: 'CHOT_LOI', price: 21.5, percentOfHolding: 50, condition: 'hồi' }], stopLoss: 25,
+  };
+  const h = holderPlan('ACCUMULATE', plan, { close: 20.9, stop: 19.85, holding: { qty: 200, avgCost: 23 } });
+  assert.equal(h.stop, 19.85); // cắt lỗ AI cao hơn giá hiện tại → dùng mức hệ thống
+  assert.equal(h.addMore, 'KHONG_MUA_THEM');
+  assert.match(h.blocked, /bình quân giá xuống/);
+  assert.equal(h.steps.find((s) => s.side === 'sell').kind, 'HA_TY_TRONG');
+});

@@ -16,9 +16,11 @@ const state = {
   moversTab: 'gainers',
   moversFloor: 'HOSE',
   ai: { enabled: false },
-  aiAuto: new Set(),   // mã:phiên:giá đã tự chạy Gemini (tránh gọi lặp)
-  aiRunning: null,
+  aiAuto: new Set(),   // mã:phiên đã tự chạy quy trình Gemini + hội đồng (tránh gọi lặp)
+  aiRunning: null,     // mã đang chạy quy trình quyết định
   aiError: null,
+  cmStage: null,       // bước đang chạy của quy trình, vd "Bước 2/4: Gemini phân tích…"
+  cmResult: null,      // kết quả hội đồng gần nhất (có gemini + final) của mã đang xem
   picksTimer: null,
 };
 
@@ -599,53 +601,8 @@ function renderDecisionCard(a) {
   const card = $('decision-card');
   if (!card) return;
 
-  const code = a.recommendation.code;
-  const tone = (code === 'BUY' || code === 'ACCUMULATE') ? 'up' : (code === 'SELL' || code === 'AVOID') ? 'down' : 'ref';
-  card.className = `card decision-card tone-${tone}`;
-
-  const icon = { BUY: '▲', ACCUMULATE: '↗', HOLD: '●', AVOID: '↘', SELL: '▼' }[code] || '●';
-  const vEl = $('dc-verdict');
-  vEl.className = `dc-verdict ${tone}`;
-  vEl.textContent = `${icon} ${a.recommendation.label}`;
-
-  $('dc-meta').innerHTML = `
-    ${a.ranking ? `<span>Điểm xếp hạng: <b>${a.ranking.score}/100</b> · hạng <b>${a.ranking.position}/${a.ranking.universe}</b> · ${a.ranking.aboveMa200 === false ? '<span class="down">dưới MA200</span>' : '<span class="up">trên MA200</span>'}</span>` : `<span>Điểm: <b>${signed(a.total, 0)}/100</b></span>`}
-    ${a.legacy ? `<span class="muted">Điểm kiểu cũ: ${signed(a.total, 0)} (${esc(a.legacy.label)}, chỉ tham khảo)</span>` : ''}
-    <span>Ngày: <b>${a.price.date}</b></span>
-  `;
-
-  $('dc-headline').textContent = a.recommendation.desc;
-
-  // Hành động khuyến nghị
-  const plan = a.plan;
-  const close = a.price.close;
-  const pct = (x) => (close ? `${signed(((x - close) / close) * 100, 1)}%` : '');
-
-  let actNew = 'Chờ tín hiệu xác nhận cân bằng rõ ràng hơn trước khi mở vị thế mới.';
-  let actHold = 'Giữ nguyên tỷ trọng danh mục, tuân thủ các mốc cắt lỗ kỷ luật.';
-
-  if (code === 'BUY' || code === 'ACCUMULATE') {
-    actNew = plan ? `Có thể giải ngân từng phần quanh vùng ${fmt(plan.support)} – ${fmt(close)}. Không mua đuổi giá xanh mạnh.` : 'Có thể giải ngân từng phần quanh giá hiện tại.';
-    actHold = plan ? `Tiếp tục nắm giữ, theo dõi mục tiêu chốt lời tại ${fmt(plan.target)} (+${pct(plan.target)}).` : 'Tiếp tục nắm giữ kỳ vọng lợi nhuận.';
-  } else if (code === 'SELL' || code === 'AVOID') {
-    actNew = 'Tuyệt đối KHÔNG giải ngân bắt đáy lúc này. Xu hướng rủi ro đang áp đảo.';
-    actHold = plan ? `Chủ động hạ tỷ trọng hoặc cắt lỗ nếu giá thủng ${fmt(plan.stopLoss)} (${pct(plan.stopLoss)}).` : 'Cân nhắc hạ tỷ trọng tiền mặt.';
-  }
-  $('dc-act-new').textContent = actNew;
-  $('dc-act-hold').textContent = actHold;
-
-  // Các mức giá then chốt
-  if (plan) {
-    $('dc-levels').innerHTML = `
-      <span class="k">Vùng hỗ trợ</span><span class="v">${fmt(plan.support)}</span><span class="p">${pct(plan.support)}</span>
-      <span class="k">Ngưỡng kháng cự</span><span class="v">${fmt(plan.resistance)}</span><span class="p">${pct(plan.resistance)}</span>
-      <span class="k">Điểm cắt lỗ</span><span class="v down">${fmt(plan.stopLoss)}</span><span class="p down">${pct(plan.stopLoss)}</span>
-      <span class="k">Mục tiêu chốt lời</span><span class="v up">${fmt(plan.target)}</span><span class="p up">${pct(plan.target)}</span>
-      <span class="k">Tỷ lệ Lời / Lỗ (R:R)</span><span class="v ${plan.riskReward >= 2 ? 'up' : ''}">${fmt(plan.riskReward, 1)} lần</span><span></span>
-    `;
-  } else {
-    $('dc-levels').innerHTML = '<span class="muted small">Không áp dụng cho chỉ số thị trường</span>';
-  }
+  // Kết luận, hành động và mức giá đã nằm ở thẻ Tóm tắt phía trên; thẻ này chỉ còn căn cứ chi tiết
+  card.className = 'card decision-card';
 
   // Dòng tiền & Khối ngoại mua/bán
   const mf = a.marketFlow;
@@ -1146,105 +1103,49 @@ async function loadAi(a) {
       <p class="muted" style="padding:14px">Gemini sẽ đọc toàn bộ dữ liệu giá, BCTC và tin tức để đưa ra nhận định chuyên sâu.</p>
     `;
   }
-  // Tự chạy Gemini khi chưa có kết quả cho mức giá hiện tại (mỗi mã/phiên/giá chỉ tự chạy 1 lần)
-  const fresh = saved && saved.priceDate === a.price.date && saved.price === a.price.close && saved.final;
-  const key = `${a.symbol}:${a.price.date}:${a.price.close}`;
-  if (!fresh && !state.aiAuto.has(key)) {
-    state.aiAuto.add(key);
-    runAiFor(a);
-  }
+  // Quy trình Gemini + hội đồng được tự chạy ở loadCommittee
 }
 
-async function runAiFor(a) {
-  const btn = $('ai-btn');
-  btn.disabled = true;
+/**
+ * Chạy quy trình quyết định trên server: Gemini → phe mua/phe bán → giám đốc đầu tư.
+ * Tiến độ và kết quả được renderCommittee theo dõi. force = Gemini phân tích lại (bỏ cache 30 phút).
+ */
+async function runAiFor(a, force = true) {
   state.aiRunning = a.symbol;
   state.aiError = null;
+  state.cmStage = 'Chuẩn bị';
+  $('ai-btn').disabled = true;
   if (state.current?.symbol === a.symbol) applyAiToDecision(a, state.aiResult);
-  $('ai-body').innerHTML = `
-    <div class="loading-state" style="border:none;padding:30px">
-      <div class="radar-spinner"><div class="spinner-ring"></div><div class="spinner-dot"></div></div>
-      <span>${esc(state.ai.model)} đang phân tích dữ liệu & tin tức…</span>
-    </div>
-  `;
   try {
-    const r = await api(`/api/ai/${a.symbol}`, { method: 'POST', body: JSON.stringify({ force: true }) });
-    state.aiRunning = null;
-    if (state.current?.symbol === a.symbol) {
-      renderAi(r);
-      applyAiToDecision(a, r);
-    }
-    loadWatchlist();
+    const s = await api(`/api/committee/${a.symbol}`, { method: 'POST', body: JSON.stringify({ force }) });
+    if (state.current?.symbol === a.symbol) renderCommittee(s, a);
   } catch (err) {
     state.aiRunning = null;
     state.aiError = { symbol: a.symbol, message: err.message };
-    if (state.current?.symbol === a.symbol) {
-      $('ai-body').innerHTML = `<p class="error" style="padding:16px">${esc(err.message)}</p>`;
-      applyAiToDecision(a, state.aiResult);
-    }
-  } finally {
-    btn.disabled = false;
+    $('ai-btn').disabled = false;
+    if (state.current?.symbol === a.symbol) applyAiToDecision(a, state.aiResult);
   }
 }
 $('ai-btn')?.addEventListener('click', () => state.current && runAiFor(state.current));
 
-// ---------- Ghép kết luận Gemini vào thẻ Quyết định ----------
-const AI_DIR = { MUA: 1, MUA_THAM_DO: 1, GIU: 0, DUNG_NGOAI: -1, BAN_BOT: -1, BAN: -1 };
-const RULE_DIR = { BUY: 1, ACCUMULATE: 1, HOLD: 0, AVOID: -1, SELL: -1 };
+/** Quyết định cuối (đã qua Gemini và hội đồng) của mã đang xem, chỉ khi cùng phiên giá. */
+function currentFinal(a) {
+  const r = state.cmResult;
+  return r?.symbol === a.symbol && r.final && r.final.priceDate === a.price.date ? r.final : null;
+}
+
+// ---------- Ghép nhận định Gemini vào thẻ Căn cứ chi tiết ----------
 
 /**
- * Khi có kết quả Gemini cho mã đang xem: thay kết luận, hành động, vùng giá, điểm cộng/trừ bằng
- * nhận định của Gemini và hiển thị mức đồng thuận với điểm hệ thống. Khi chưa có: chỉ cập nhật trạng thái.
+ * Vẽ lại thẻ Tóm tắt (quyết định cuối) và, khi có kết quả Gemini, thay luận điểm mua, rủi ro,
+ * điều kiện theo dõi và nhận định dòng tiền ở thẻ Căn cứ chi tiết.
  */
 function applyAiToDecision(a, ai) {
   state.aiResult = ai && ai.symbol === a.symbol ? ai : null;
   ai = state.aiResult;
   if (state.current?.symbol === a.symbol) renderBrief(a);
-  const st = $('dc-ai-status');
-  if (st) {
-    if (a.isIndex) st.innerHTML = '';
-    else if (!state.ai.enabled) st.innerHTML = 'Chưa bật Gemini: kết luận dựa trên điểm hệ thống.';
-    else if (state.aiRunning === a.symbol) st.innerHTML = '<span class="mini-spin"></span> AI đang phân tích giá, dòng tiền và tin tức… (khoảng 30–60 giây). Tạm thời hiển thị kết luận theo điểm hệ thống.';
-    else if (state.aiError?.symbol === a.symbol && !ai) st.innerHTML = `<span class="down">AI lỗi: ${esc(state.aiError.message)}</span> <button type="button" class="btn btn-glass btn-xs" data-dc="rerun">Thử lại</button>`;
-    else if (ai) {
-      const stale = ai.price !== a.price.close;
-      st.innerHTML = `✦ Kết luận của Gemini (${esc(ai.model)}) lúc ${new Date(ai.createdAt).toLocaleString('vi-VN')} tại giá ${fmt(ai.price)}${stale ? ' · <span class="ref">giá đã thay đổi</span>' : ''}
-        <button type="button" class="btn btn-glass btn-xs" data-dc="rerun">Phân tích lại</button>`;
-    } else st.innerHTML = '';
-  }
+  // Kết luận, trạng thái AI, hành động và mức giá hiển thị ở thẻ Tóm tắt; ở đây chỉ thay căn cứ chi tiết
   if (!ai) return;
-
-  const rec = a.recommendation;
-  const ruleDir = RULE_DIR[rec.code] ?? 0;
-  const aiDir = AI_DIR[ai.decision] ?? 0;
-  // "Đứng ngoài" là chờ đợi chứ không phải bán: dùng màu vàng như THEO DÕI
-  const tone = ai.decision === 'DUNG_NGOAI' ? 'ref' : aiDir > 0 ? 'up' : aiDir < 0 ? 'down' : 'ref';
-  $('decision-card').className = `card decision-card tone-${tone}`;
-  const v = $('dc-verdict');
-  v.className = `dc-verdict ${tone}`;
-  v.textContent = `${{ up: '▲', down: '▼', ref: '●' }[tone]} ${ai.decisionLabel}`;
-
-  const diff = Math.abs(aiDir - ruleDir);
-  const agree = diff === 0 ? '<span class="up">✓ Gemini và hệ thống đồng thuận</span>'
-    : diff === 1 ? '<span class="ref">≈ Gần đồng thuận</span>'
-    : '<span class="down">⚠ Gemini và hệ thống ngược chiều, nên thận trọng</span>';
-  $('dc-meta').innerHTML = `
-    <span>Gemini: <b>${esc(ai.decisionLabel)}</b> · tin cậy <b>${ai.confidence}%</b></span>
-    <span>Hệ thống: <b>${esc(rec.label)}</b> (${a.ranking ? `xếp hạng ${a.ranking.score}` : `${signed(a.total, 0)} điểm`})</span>
-    <span>${agree}</span>
-    ${ai.horizon ? `<span>Khung thời gian: <b>${esc(ai.horizon)}</b></span>` : ''}`;
-  $('dc-headline').textContent = ai.headline || (ai.summary || '').split(/(?<=[.!?])\s/)[0];
-
-  $('dc-act-new').textContent = ai.forNewBuyers;
-  $('dc-act-hold').textContent = ai.forHolders + (ai.positionSizing ? ` Tỷ trọng: ${ai.positionSizing}` : '');
-
-  const c = a.price.close;
-  const pct = (x) => (x == null ? '' : `${signed(((x - c) / c) * 100, 1)}%`);
-  let lv = `<span class="k">Giá hiện tại</span><span class="v">${fmt(c)}</span><span class="p">${signed(a.price.changePct)}%</span>`;
-  if (ai.entryZone) lv += `<span class="k">Vùng mua</span><span class="v">${fmt(ai.entryZone.from)} – ${fmt(ai.entryZone.to)}</span><span class="p">${pct(ai.entryZone.to)}</span>`;
-  if (ai.stopLoss != null) lv += `<span class="k">Cắt lỗ</span><span class="v down">${fmt(ai.stopLoss)}</span><span class="p down">${pct(ai.stopLoss)}</span>`;
-  ai.targets.forEach((t, i) => { lv += `<span class="k">Mục tiêu ${i + 1}</span><span class="v up">${fmt(t)}</span><span class="p up">${pct(t)}</span>`; });
-  $('dc-levels').innerHTML = lv;
 
   const li = (arr) => arr.slice(0, 3).map((x) => `<li>${esc(x)}</li>`).join('');
   if (ai.bullCase?.length) $('dc-pros').innerHTML = li(ai.bullCase);
@@ -1256,10 +1157,6 @@ function applyAiToDecision(a, ai) {
     flow.insertAdjacentHTML('beforeend', `<div class="dc-note">${esc(ai.marketFlowView)}</div>`);
   }
 }
-
-$('decision-card')?.addEventListener('click', (e) => {
-  if (e.target.closest('[data-dc="rerun"]') && state.current) runAiFor(state.current);
-});
 
 // ---------- CỔ PHIẾU TIỀM NĂNG ----------
 const PICK_TONE = { MUA: 'up', MUA_THAM_DO: 'up', CHO_DIEM_MUA: 'ref', LOAI: 'down' };
@@ -1727,21 +1624,50 @@ async function loadCommittee(a) {
   const s = await api(`/api/committee/${a.symbol}`).catch(() => null);
   if (state.current?.symbol !== a.symbol) return;
   renderCommittee(s, a);
+  // Mỗi mã/phiên tự chạy quy trình Gemini + hội đồng một lần nếu chưa có quyết định cuối của phiên này
+  const r = s?.result;
+  const key = `${a.symbol}:${a.price.date}`;
+  if (s?.status !== 'running' && !(r?.final && r.priceDate === a.price.date) && !state.aiAuto.has(key)) {
+    state.aiAuto.add(key);
+    runAiFor(a, false);
+  }
 }
 
 function renderCommittee(s, a) {
   const running = s?.status === 'running';
   $('cm-btn').disabled = running || !state.ai.enabled;
+  $('ai-btn').disabled = running;
   if (running) {
+    const stage = `${s.step ? `Bước ${s.step}/${s.steps || 4}: ` : ''}${s.stage || 'Đang họp'}`;
+    const changed = state.aiRunning !== a.symbol || state.cmStage !== stage;
+    state.aiRunning = a.symbol;
+    state.cmStage = stage;
+    if (changed) applyAiToDecision(a, state.aiResult);
     $('cm-body').innerHTML = `<div class="loading-state" style="border:none;padding:30px">
       <div class="radar-spinner"><div class="spinner-ring"></div><div class="spinner-dot"></div></div>
-      <span>${esc(s.stage || 'Đang họp')}… (thường mất 1–3 phút)</span></div>`;
+      <span>${esc(stage)}… (thường mất 1–3 phút)</span></div>`;
+    if (s.step <= 2) {
+      $('ai-body').innerHTML = `<div class="loading-state" style="border:none;padding:30px">
+        <div class="radar-spinner"><div class="spinner-ring"></div><div class="spinner-dot"></div></div>
+        <span>${esc(stage)}…</span></div>`;
+    }
+    clearTimeout(CM.timer);
     CM.timer = setTimeout(async () => {
       const next = await api(`/api/committee/${a.symbol}`).catch(() => null);
       if (state.current?.symbol === a.symbol) renderCommittee(next, a);
     }, 2500);
     return;
   }
+  // Quy trình đã xong (hoặc lỗi): cập nhật Gemini, thẻ quyết định và tóm tắt theo kết quả mới
+  const wasRunning = state.aiRunning === a.symbol;
+  if (wasRunning) state.aiRunning = null;
+  if (s?.status === 'error') state.aiError = { symbol: a.symbol, message: s.error };
+  if (s?.result) {
+    state.cmResult = s.result;
+    if (s.result.gemini) renderAi(s.result.gemini);
+    applyAiToDecision(a, s.result.gemini || state.aiResult);
+    if (wasRunning) loadWatchlist();
+  } else if (wasRunning) applyAiToDecision(a, state.aiResult);
   const err = s?.status === 'error' ? `<p class="error" style="padding:10px 0">Lần họp gần nhất lỗi: ${esc(s.error)}</p>` : '';
   const r = s?.result;
   if (!r) {
@@ -1805,15 +1731,7 @@ function renderCommittee(s, a) {
     <p class="ai-note">3 lượt gọi Gemini · ${r.tokens ? `${r.tokens.toLocaleString('vi-VN')} tokens · ` : ''}${Math.round(r.durationMs / 1000)}s. AI có thể sai; hãy đối chiếu với dữ liệu định lượng.</p>`;
 }
 
-$('cm-btn')?.addEventListener('click', async () => {
-  const a = state.current;
-  if (!a) return;
-  try {
-    renderCommittee(await api(`/api/committee/${a.symbol}`, { method: 'POST' }), a);
-  } catch (err) {
-    showToast(err.message, 'error');
-  }
-});
+$('cm-btn')?.addEventListener('click', () => state.current && runAiFor(state.current, false));
 
 // ---------- Danh mục đầu tư ----------
 function showPortfolio() {
@@ -1984,6 +1902,9 @@ function renderRankCard(a) {
       <div>
         <h3>🎯 Điểm xếp hạng 4 yếu tố <span class="badge-subtle">đã kiểm chứng ngoài mẫu</span></h3>
         <div class="muted small">Hạng ${r.position}/${r.universe} trong rổ HOSE ≥ 5 tỷ/phiên · ${r.aboveMa200 === false ? '<span class="down">giá dưới MA200</span>' : '<span class="up">giá trên MA200</span>'}</div>
+        <div class="small" style="margin-top:4px">${r.pfRank == null ? '<span class="down">Ngoài nhóm mua/giữ (dưới MA200)</span>'
+          : r.pfRank <= 8 ? `<span class="up">▲ Thuộc danh mục mẫu: hạng ${r.pfRank} trong nhóm trên MA200 (top 8)</span>`
+          : `<span class="ref">Hạng ${r.pfRank} trong nhóm trên MA200 (ngoài danh mục mẫu top 8)</span>`}</div>
       </div>
       <div class="rk-score ${RANK_TONE[r.code]}"><b>${r.score}</b><span>/100</span><div>${esc(r.label)}</div></div>
     </div>
@@ -2018,7 +1939,7 @@ async function loadRankBoard() {
     $('rk-sub').textContent = `Phiên ${b.date} · ${b.universe} mã sàn ${b.criteria.floors.join(', ')} có giá trị giao dịch TB 20 phiên ≥ ${fmt(b.criteria.minValue / 1e9, 1)} tỷ · cập nhật ${new Date(b.updatedAt).toLocaleTimeString('vi-VN')}`;
     $('rk-board').innerHTML = `<div class="tbl-wrap"><table class="tbl rk-table"><thead><tr><th>#</th><th>Mã</th><th>Giá</th><th>Hôm nay</th><th>GTGD TB20</th><th>Điểm</th><th>Đánh giá</th>
       ${Object.values(FACTOR_LABELS).map((l) => `<th>${l}</th>`).join('')}<th>MA200</th></tr></thead><tbody>
-      ${b.rows.map((r, i) => `<tr class="${i < 8 && r.aboveMa200 !== false ? 'rk-top' : ''}">
+      ${b.rows.map((r, i) => `<tr class="${r.pfRank != null && r.pfRank <= 8 ? 'rk-top' : ''}">
         <td>${i + 1}</td><td><a href="#${r.symbol}" class="pf-sym" data-sym="${r.symbol}">${r.symbol}</a></td>
         <td>${fmt(r.close)}</td><td class="${dirClass(r.changePct)}">${signed(r.changePct)}%</td><td>${fmt(r.value20 / 1e9, 1)} tỷ</td>
         <td><b class="${RANK_TONE[r.code]}">${r.score}</b></td><td class="${RANK_TONE[r.code]}" style="font-family:inherit">${esc(r.label)}</td>
@@ -2058,7 +1979,7 @@ function renderRankBacktest(r) {
   $('rk-bt').innerHTML = `
     <div class="bt-verdict tone-${beat ? 'up' : 'down'}">Danh mục top ${r.config.top} ${beat ? 'thắng' : 'thua'} VN-Index: ${pct(m.totalReturn)} so với ${pct(m.benchmarkReturn)}
       (rổ chia đều ${pct(r.equalWeight.totalReturn)}). Thắng chỉ số ${ac.periodsBeatIndex}/${ac.periods} kỳ, ${fmt((ac.picksBeatIndex / ac.picks) * 100, 0)}% số mã được chọn thắng chỉ số.</div>
-    <div class="muted small" style="margin:6px 0 12px">${r.period.from} → ${r.period.to} · ${r.config.universe} mã · tái cơ cấu mỗi ${r.config.rebalance} phiên · ${r.config.trendFilter ? 'có' : 'không'} lọc MA200 · khi VN-Index yếu: ${{ none: 'vẫn đầy vốn', half: 'giữ nửa số mã', cash: 'cầm tiền' }[r.config.regime]} (${r.regime.bearPeriods}/${r.regime.periods} kỳ thị trường yếu, hiện tại ${r.regime.now === 'bear' ? '<span class="down">yếu</span>' : '<span class="up">tốt</span>'}) · vốn ${fmtBig(r.config.initialCash)}</div>
+    <div class="muted small" style="margin:6px 0 12px">${r.period.from} → ${r.period.to} · ${r.config.universe} mã · tái cơ cấu mỗi ${r.config.rebalance} phiên · giữ mã còn trong top ${r.config.top * (r.config.buffer ?? 1)} · ${r.config.trendFilter ? 'có' : 'không'} lọc MA200 · khi VN-Index yếu: ${{ none: 'vẫn đầy vốn', half: 'giữ nửa số mã', cash: 'cầm tiền' }[r.config.regime]} (${r.regime.bearPeriods}/${r.regime.periods} kỳ thị trường yếu, hiện tại ${r.regime.now === 'bear' ? '<span class="down">yếu</span>' : '<span class="up">tốt</span>'}) · vốn ${fmtBig(r.config.initialCash)}</div>
     <div class="ai-levels bt-kpis">
       ${kpi('Lợi nhuận', pct(m.totalReturn), dirClass(m.totalReturn))}
       ${kpi('Mỗi năm', pct(m.annualReturn), dirClass(m.annualReturn))}
@@ -2151,10 +2072,17 @@ function briefText(a) {
     lines.push(`AI thẩm định: ${b.fin.note}`);
     for (const c of b.fin.marketChecks) lines.push(`  ${CHECK_ICON[c.status][0]} ${c.label}: ${c.note}`);
   }
-  const stepLine = (x) => `  - [${SIDE[x.side][0]}] ${x.zone ? `${fmt(x.zone[0])}–${fmt(x.zone[1])}` : x.price != null ? fmt(x.price) : ''}${x.portion ? ` · ${Math.round(x.portion * 100)}% vốn` : ''}${x.shares != null ? ` · ${x.shares} cp` : ''} · ${x.condition}`;
+  const stepLine = (x) => `  - [${SIDE[x.side][0]}] ${x.zone ? `${fmt(x.zone[0])}–${fmt(x.zone[1])}` : x.price != null ? fmt(x.price) : ''}${x.portion ? ` · ${Math.round(x.portion * 100)}% vốn` : x.side === 'buy' && x.portionOfHolding ? ` · +${Math.round(x.portionOfHolding * 100)}% số đang giữ` : ''}${(() => { const q = stepQty(x, capitalM() * 1e6); return q?.shares ? ` · ${q.shares.toLocaleString('vi-VN')} cp ≈ ${money(q.vnd)}` : ''; })()} · ${x.condition}`;
   if (b.steps) {
     lines.push('Nếu CHƯA có cổ phiếu:', ...b.steps.fresh.map(stepLine));
-    lines.push(`Nếu ĐANG nắm giữ:${b.plays?.position ? ` (${b.plays.position})` : ''}`, ...b.steps.hold.map(stepLine));
+    lines.push(`Nếu ĐANG nắm giữ:${b.plays?.position ? ` (${b.plays.position})` : ''}`);
+    const h = b.fin?.holder;
+    if (h) {
+      lines.push(`  ${h.addLabel}: ${h.addReason}`);
+      if (h.holdView) lines.push(`  ${h.holdView}`);
+      for (const z of h.noAdd) lines.push(`  Không mua thêm khi giá ${z.side === 'DUOI' ? 'dưới' : 'trên'} ${fmt(z.price)}: ${z.reason}`);
+    }
+    lines.push(...b.steps.hold.map(stepLine));
   }
   lines.push('Vì sao:');
   for (const r of b.reasons) lines.push(`${BRIEF_ICON[r.tone]} ${r.text}`);
@@ -2167,7 +2095,37 @@ function briefText(a) {
 const capitalM = () => { try { return Number(localStorage.getItem('vnstock_capital')) || 0; } catch { return 0; } };
 const SIDE = { buy: ['Mua', 'up'], sell: ['Bán', 'down'], stop: ['Cắt lỗ', 'down'], wait: ['Chờ', 'ref'] };
 
-function stepRows(steps, { fresh, close }) {
+/** Số tiền dễ đọc: 1,25 tỷ · 125,4 triệu · 850 nghìn. */
+function money(vnd) {
+  const v = Math.abs(vnd);
+  if (v >= 1e9) return `${(vnd / 1e9).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} tỷ`;
+  if (v >= 1e6) return `${(vnd / 1e6).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} triệu`;
+  return `${Math.round(vnd / 1e3).toLocaleString('vi-VN')} nghìn`;
+}
+
+/** Số cp mua được với số tiền (giá nghìn đồng): ưu tiên lô chẵn 100, không đủ thì lô lẻ. */
+function sharesFor(vnd, price) {
+  const raw = Math.floor(vnd / (price * 1000));
+  const shares = raw >= 100 ? Math.floor(raw / 100) * 100 : raw;
+  return { shares, odd: shares > 0 && shares < 100 };
+}
+
+/**
+ * Quy đổi một bước ra số cp và số tiền. Mua mới: tỷ trọng × vốn, tính theo giá CAO nhất của vùng để không vượt tiền.
+ * Bước đã có số cp (theo vị thế thật): số tiền = số cp × giá.
+ */
+function stepQty(x, cap) {
+  const price = x.zone ? (x.side === 'buy' ? x.zone[1] : (x.zone[0] + x.zone[1]) / 2) : x.price;
+  if (!price) return null;
+  if (x.shares != null) return { shares: x.shares, vnd: x.shares * price * 1000, odd: x.shares < 100 };
+  if (x.side === 'buy' && x.portion && cap) {
+    const { shares, odd } = sharesFor(cap * x.portion, price);
+    return { shares, vnd: shares * price * 1000, odd, budget: cap * x.portion };
+  }
+  return null;
+}
+
+function stepRows(steps, { close }) {
   const cap = capitalM() * 1e6;
   let n = 0;
   return steps.map((x) => {
@@ -2175,17 +2133,83 @@ function stepRows(steps, { fresh, close }) {
     const zone = x.zone ? `${fmt(x.zone[0])}–${fmt(x.zone[1])}` : x.price != null ? fmt(x.price) : '–';
     const ref = x.zone ? (x.zone[0] + x.zone[1]) / 2 : x.price;
     const diff = ref ? ` <span class="muted small">${pct((ref - close) / close)}</span>` : '';
-    let qty = '';
-    if (x.shares != null) qty = `${x.shares.toLocaleString('vi-VN')} cp`;
-    else if (fresh && x.side === 'buy' && cap && ref) {
-      const sh = Math.floor((cap * x.portion) / (ref * 1000) / 100) * 100;
-      qty = sh > 0 ? `${sh.toLocaleString('vi-VN')} cp` : '< 1 lô';
-    }
-    const weight = x.portion ? `${Math.round(x.portion * 100)}% vốn` : x.portionOfHolding ? `${Math.round(x.portionOfHolding * 100)}% đang giữ` : '';
+    const q = stepQty(x, cap);
+    let qty = '', amount = '';
+    if (q) {
+      qty = q.shares > 0 ? `<b>${q.shares.toLocaleString('vi-VN')} cp</b>${q.odd ? ' <span class="muted small">(lô lẻ)</span>' : ''}` : '<span class="down small">vốn không đủ 1 cp</span>';
+      const sign = x.side === 'buy' ? 'chi' : 'thu về';
+      amount = q.shares > 0 ? `${money(q.vnd)} <span class="muted small">${sign}</span>` : '';
+      if (x.side === 'buy' && cap && !x.portion) amount += ` <span class="muted small">= ${pct(q.vnd / cap).replace('+', '')} vốn</span>`;
+    } else if (x.side === 'buy' && x.portion && !cap) qty = '<span class="muted small">nhập vốn</span>';
+    const weight = x.portion ? `<b>${Math.round(x.portion * 1000) / 10}%</b> vốn`
+      : x.portionOfHolding ? (x.side === 'buy' ? `+${Math.round(x.portionOfHolding * 100)}% số đang giữ` : `${Math.round(x.portionOfHolding * 100)}% số đang giữ`) : '';
     const num = x.side === 'buy' || x.side === 'sell' ? ++n : '';
     return `<tr class="st-${x.side}"><td class="st-n">${num}</td><td><span class="st-badge ${tone}">${label}</span></td>
-      <td class="st-zone">${zone}${diff}</td><td>${weight}</td><td>${qty}</td><td class="st-cond">${esc(x.condition)}</td></tr>`;
+      <td class="st-zone">${zone}${diff}</td><td>${weight}</td><td>${amount}</td><td>${qty}</td><td class="st-cond">${esc(x.condition)}</td></tr>`;
   }).join('');
+}
+
+/** Khung vốn: nhập số tiền → quy ra tỷ trọng, số tiền, số cp, mức lỗ tối đa và tỷ trọng vị thế đang giữ. */
+function capitalBox(a, steps) {
+  const capM = capitalM();
+  const cap = capM * 1e6;
+  const l = a.brief.levels;
+  const close = a.price.close;
+  const h = a.brief.holding;
+  const chips = [100, 200, 500, 1000].map((v) => `<button type="button" class="btn btn-glass btn-xs${v === capM ? ' on' : ''}" data-cap="${v}">${money(v * 1e6)}</button>`).join('');
+  const head = `<div class="cap-head">
+      <label for="bf-capital"><b>💰 Tổng vốn đầu tư của bạn</b></label>
+      <span class="cap-input"><input id="bf-capital" type="number" min="0" step="10" inputmode="decimal" value="${capM || ''}" placeholder="vd 500"> triệu đồng</span>
+      <span class="cap-chips">${chips}</span>
+      ${cap ? `<span class="muted small">= ${Math.round(cap).toLocaleString('vi-VN')} đ</span>` : ''}
+    </div>`;
+  if (!cap) {
+    return `<div class="bf-capbox">${head}
+      <div class="muted small">Nhập tổng số tiền bạn dành cho chứng khoán (ví dụ 500 = 500 triệu). Tool sẽ đổi tỷ trọng % thành <b>số tiền</b> và <b>số cổ phiếu</b>
+      cho từng lần mua, cho biết <b>lỗ tối đa bao nhiêu tiền</b> nếu chạm cắt lỗ, và vị thế đang giữ chiếm bao nhiêu % vốn. Chỉ lưu trên trình duyệt này.</div></div>`;
+  }
+  const rows = [];
+  // Tỷ trọng tối đa cho mã này (theo khoảng cách tới cắt lỗ: chạm cắt lỗ chỉ mất ~1% tổng vốn)
+  if (l?.weight != null) {
+    const maxV = cap * l.weight;
+    const { shares } = sharesFor(maxV, close);
+    rows.push(['Tỷ trọng tối đa cho ' + a.symbol, `<b>${Math.round(l.weight * 1000) / 10}% vốn</b> = <b>${money(maxV)}</b> ≈ ${shares.toLocaleString('vi-VN')} cp ở giá ${fmt(close)}`]);
+  }
+  // Kế hoạch mua mới
+  const buys = (steps?.fresh || []).filter((x) => x.side === 'buy' && x.portion);
+  const isWait = (steps?.fresh || []).some((x) => x.side === 'wait');
+  if (buys.length) {
+    const qs = buys.map((x) => ({ x, q: stepQty(x, cap) })).filter((r) => r.q);
+    const totalV = qs.reduce((s, r) => s + r.q.vnd, 0);
+    const totalSh = qs.reduce((s, r) => s + r.q.shares, 0);
+    const totalW = buys.reduce((s, x) => s + x.portion, 0);
+    const detail = qs.map((r, k) => `lần ${k + 1}: ${r.q.shares.toLocaleString('vi-VN')} cp (${money(r.q.vnd)})`).join(' · ');
+    rows.push([isWait ? 'Nếu đủ điều kiện mua' : 'Kế hoạch mua mới', `tổng <b>${Math.round(totalW * 1000) / 10}% vốn</b> ≈ <b>${money(totalV)}</b> = <b>${totalSh.toLocaleString('vi-VN')} cp</b>, chia ${qs.length} lần<div class="muted small">${detail}</div>`]);
+    if (l?.stop) {
+      const loss = qs.reduce((s, r) => {
+        const p = r.x.zone ? r.x.zone[1] : r.x.price;
+        return s + r.q.shares * Math.max(0, p - l.stop) * 1000;
+      }, 0);
+      rows.push(['Rủi ro nếu chạm cắt lỗ ' + fmt(l.stop), `<span class="down">lỗ tối đa ≈ <b>${money(loss)}</b> = ${(loss / cap * 100).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}% tổng vốn</span> (chưa tính phí, thuế)`]);
+    }
+    rows.push(['Tiền mặt còn lại', `${money(cap - totalV)} cho các mã khác`]);
+  } else {
+    rows.push(['Mua mới', '<span class="ref">Quyết định hiện tại là chưa mua: không giải ngân vốn cho mã này</span>']);
+  }
+  // Vị thế đang giữ so với vốn
+  if (h?.qty) {
+    const val = h.qty * close * 1000;
+    const w = val / cap;
+    let note = '';
+    if (l?.weight != null) {
+      const room = cap * l.weight - val;
+      note = room > 0
+        ? ` · còn được mua thêm tối đa <b>${money(room)}</b> ≈ ${sharesFor(room, close).shares.toLocaleString('vi-VN')} cp (nếu kế hoạch cho phép)`
+        : ` · <span class="down">đã vượt tỷ trọng tối đa ${Math.round(l.weight * 100)}%: không mua thêm, cân nhắc hạ bớt</span>`;
+    }
+    rows.push(['Vị thế đang giữ', `${h.qty.toLocaleString('vi-VN')} cp × ${fmt(close)} = <b>${money(val)}</b> = <b>${(w * 100).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}% vốn</b>${note}`]);
+  }
+  return `<div class="bf-capbox">${head}<div class="cap-rows">${rows.map(([k, v]) => `<div class="cap-k">${k}</div><div class="cap-v">${v}</div>`).join('')}</div></div>`;
 }
 
 function ladder(l) {
@@ -2201,10 +2225,25 @@ const CHECK_ICON = { TOT: ['✓', 'up'], TRUNG_TINH: ['•', 'ref'], XAU: ['✕'
 
 function effectiveBrief(a) {
   const b = a.brief;
-  const ai = state.aiResult?.symbol === a.symbol ? state.aiResult : null;
-  const fin = ai?.final && ai.final.priceDate === a.price.date ? ai.final : null;
+  // Chỉ dùng quyết định cuối đã qua đủ Gemini và hội đồng đầu tư
+  const fin = currentFinal(a);
+  const ai = fin ? state.cmResult : null;
   if (!fin) return { verdict: b.verdict, tone: b.tone, action: b.action, steps: b.steps, fin: null, ai };
-  return { verdict: fin.label, tone: fin.tone, action: fin.action, steps: fin.steps, fin, ai };
+  return { verdict: fin.label, tone: fin.tone, action: fin.action, steps: fin.steps || b.steps, fin, ai };
+}
+
+const ADD_TONE = { MUA_THEM: 'up', MUA_THEM_CO_DIEU_KIEN: 'ref', KHONG_MUA_THEM: 'down' };
+
+/** Phần "đang nắm giữ" do hội đồng lập: có nên mua thêm, vùng không được mua thêm, quan điểm giữ. */
+function holderBlock(h) {
+  if (!h) return '';
+  const noAdd = h.noAdd.length ? `<ul class="bf-noadd">${h.noAdd.map((z) => `<li><b>Không mua thêm khi giá ${z.side === 'DUOI' ? 'dưới' : 'trên'} ${fmt(z.price)}</b>${z.reason ? `: ${esc(z.reason)}` : ''}</li>`).join('')}</ul>` : '';
+  return `<div class="bf-holder">
+    <div><span class="st-badge ${ADD_TONE[h.addMore]}">${esc(h.addLabel)}</span> ${esc(h.addReason)}</div>
+    ${h.blocked ? `<div class="muted small">⚠ ${esc(h.blocked)}</div>` : ''}
+    ${h.holdView ? `<div class="bf-holdview">${esc(h.holdView)}</div>` : ''}
+    ${noAdd}
+  </div>`;
 }
 
 function aiReviewBlock(a, eff) {
@@ -2213,17 +2252,19 @@ function aiReviewBlock(a, eff) {
   if (fin) {
     const cls = fin.relation === 'stricter' ? 'down' : fin.relation === 'looser' ? 'ref' : 'up';
     const icon = fin.relation === 'stricter' ? '⚠' : fin.relation === 'looser' ? 'ℹ' : '✓';
-    status = `<div class="bf-ai ${cls}"><b>${icon} AI đã thẩm định theo yếu tố thị trường:</b> ${esc(fin.note)}
-      <span class="muted small">· ${esc(eff.ai.model)} · ${new Date(eff.ai.createdAt).toLocaleTimeString('vi-VN')}</span>
-      <button type="button" class="btn btn-glass btn-xs" data-bf="rerun">Thẩm định lại</button></div>`;
+    const chain = `Hệ thống <b>${esc(fin.systemLabel)}</b> → Gemini <b>${esc(fin.gemini?.label || '')}</b>${fin.committee ? ` → Hội đồng <b>${esc(fin.committee.label)}</b>` : ''} → Quyết định cuối <b>${esc(fin.label)}</b>`;
+    status = `<div class="bf-ai ${cls}"><b>${icon} Đã qua Gemini và hội đồng đầu tư:</b> ${esc(fin.note)}
+      <div class="small" style="margin-top:4px">${chain}</div>
+      <span class="muted small">${esc(eff.ai.model)} · ${new Date(eff.ai.createdAt).toLocaleString('vi-VN')}${eff.ai.price !== a.price.close ? ` · tại giá ${fmt(eff.ai.price)}, giá đã đổi` : ''}</span>
+      <button type="button" class="btn btn-glass btn-xs" data-bf="rerun">Phân tích lại</button></div>`;
   } else if (!state.ai.enabled) {
-    status = '<div class="bf-ai ref">Chưa bật AI: quyết định chỉ dựa trên tín hiệu định lượng. Thêm API key trong .env để AI thẩm định theo yếu tố thị trường.</div>';
+    status = '<div class="bf-ai ref">Chưa bật AI: quyết định chỉ dựa trên tín hiệu định lượng. Thêm API key trong .env để Gemini và hội đồng đầu tư thẩm định.</div>';
   } else if (state.aiRunning === a.symbol) {
-    status = '<div class="bf-ai ref"><span class="mini-spin"></span> AI đang thẩm định theo 6 yếu tố thị trường (VN-Index, độ rộng, khối ngoại, ngành, tin tức, cơ bản)… Tạm hiển thị khuyến nghị định lượng, <b>chưa nên hành động</b> trước khi có kết quả.</div>';
+    status = `<div class="bf-ai ref"><span class="mini-spin"></span> ${esc(state.cmStage || 'Đang phân tích')}… Quy trình: Gemini (6 yếu tố thị trường) → phe mua/phe bán → giám đốc đầu tư. Bảng dưới đang là kế hoạch định lượng tạm thời, <b>chưa nên hành động</b> trước khi có quyết định cuối.</div>`;
   } else if (state.aiError?.symbol === a.symbol) {
-    status = `<div class="bf-ai down">⚠ AI chưa thẩm định được (${esc(state.aiError.message)}). Quyết định hiện chỉ dựa trên định lượng, cần thận trọng. <button type="button" class="btn btn-glass btn-xs" data-bf="rerun">Thử lại</button></div>`;
+    status = `<div class="bf-ai down">⚠ Chưa có quyết định cuối: AI lỗi (${esc(state.aiError.message)}). Kế hoạch dưới chỉ dựa trên định lượng, chưa nên hành động. <button type="button" class="btn btn-glass btn-xs" data-bf="rerun">Thử lại</button></div>`;
   } else {
-    status = '<div class="bf-ai ref">AI chưa thẩm định phiên này. <button type="button" class="btn btn-glass btn-xs" data-bf="rerun">Thẩm định ngay</button></div>';
+    status = '<div class="bf-ai ref">Chưa có quyết định cuối cho phiên này (cần Gemini và hội đồng đầu tư thẩm định). <button type="button" class="btn btn-glass btn-xs" data-bf="rerun">Phân tích ngay</button></div>';
   }
   const checks = fin?.marketChecks?.length ? `<div class="bf-checks">${fin.marketChecks.map((c) => {
     const [ic, tone] = CHECK_ICON[c.status];
@@ -2239,9 +2280,8 @@ function renderBrief(a) {
   if (!b) return;
   const eff = effectiveBrief(a);
   const l = b.levels, st = eff.steps;
-  const cap = capitalM();
-  const table = (steps, fresh) => `<table class="tbl st-table"><thead><tr><th>#</th><th></th><th>Vùng giá</th><th>Tỷ trọng</th><th>Số cp</th><th>Điều kiện</th></tr></thead>
-    <tbody>${stepRows(steps, { fresh, close: a.price.close })}</tbody></table>`;
+  const table = (steps) => `<table class="tbl st-table"><thead><tr><th>#</th><th></th><th>Vùng giá</th><th>Tỷ trọng</th><th>Số tiền</th><th>Số cp</th><th>Điều kiện</th></tr></thead>
+    <tbody>${stepRows(steps, { close: a.price.close })}</tbody></table>`;
   el.className = `card brief-card tone-${eff.tone}`;
   el.innerHTML = `
     <div class="bf-top">
@@ -2250,21 +2290,20 @@ function renderBrief(a) {
         <div class="bf-action">${esc(eff.action)}</div>
         <div class="muted small">${esc(b.headline)} · giá ${fmt(a.price.close)} (${signed(a.price.changePct)}%) · phiên ${a.price.date}</div>
       </div>
-      <label class="bf-cap" title="Tổng vốn đầu tư để tính số cổ phiếu mỗi lần mua (lưu trên trình duyệt này)">Vốn của bạn
-        <input id="bf-capital" type="number" min="0" step="10" value="${cap || ''}" placeholder="vd 500"> triệu</label>
       <button type="button" class="btn btn-glass btn-xs" id="bf-copy" title="Sao chép kế hoạch để gửi nhanh">📋 Sao chép</button>
     </div>
     ${aiReviewBlock(a, eff)}
+    ${st ? capitalBox(a, st) : ''}
     ${st ? `<div class="bf-plays">
       <div class="bf-play${b.holding ? '' : ' mine'}">
         <h4>🆕 Nếu chưa có cổ phiếu${b.holding ? '' : ' <span class="bf-you">trường hợp của bạn</span>'}</h4>
-        <div class="tbl-wrap">${table(st.fresh, true)}</div>
-        ${!cap && st.fresh.some((x) => x.side === 'buy') ? '<div class="muted small">Nhập "Vốn của bạn" ở trên để xem số cổ phiếu mỗi lần mua.</div>' : ''}
+        <div class="tbl-wrap">${table(st.fresh)}</div>
       </div>
       <div class="bf-play${b.holding ? ' mine' : ''}">
         <h4>💼 Nếu đang nắm giữ${b.holding ? ' <span class="bf-you">trường hợp của bạn</span>' : ''}</h4>
-        ${b.plays?.position ? `<div class="bf-pos">${esc(b.plays.position)}</div>` : '<div class="muted small" style="margin-bottom:6px">Ghi lệnh trong 💼 Danh mục để tool tính đúng số cổ phiếu cần bán theo vị thế của bạn.</div>'}
-        <div class="tbl-wrap">${table(st.hold, false)}</div>
+        ${b.plays?.position ? `<div class="bf-pos">${esc(b.plays.position)}</div>` : '<div class="muted small" style="margin-bottom:6px">Ghi lệnh trong 💼 Danh mục để tool tính đúng số cổ phiếu cần mua thêm / bán theo vị thế của bạn.</div>'}
+        ${eff.fin?.holder ? holderBlock(eff.fin.holder) : ''}
+        <div class="tbl-wrap">${table(st.hold)}</div>
       </div>
     </div>` : ''}
     <div class="bf-body">
@@ -2275,13 +2314,20 @@ function renderBrief(a) {
 }
 
 
-$('brief-card')?.addEventListener('change', (e) => {
-  if (e.target.id !== 'bf-capital') return;
-  try { localStorage.setItem('vnstock_capital', String(Math.max(0, Number(e.target.value) || 0))); } catch { /* bỏ qua */ }
+function setCapital(v) {
+  try { localStorage.setItem('vnstock_capital', String(Math.max(0, Number(v) || 0))); } catch { /* bỏ qua */ }
   if (state.current) renderBrief(state.current);
+}
+$('brief-card')?.addEventListener('change', (e) => {
+  if (e.target.id === 'bf-capital') setCapital(e.target.value);
+});
+$('brief-card')?.addEventListener('keydown', (e) => {
+  if (e.target.id === 'bf-capital' && e.key === 'Enter') setCapital(e.target.value);
 });
 
 $('brief-card')?.addEventListener('click', async (e) => {
+  const chip = e.target.closest('[data-cap]');
+  if (chip) { setCapital(chip.dataset.cap); return; }
   if (e.target.closest('[data-bf="rerun"]') && state.current) { runAiFor(state.current); return; }
   if (e.target.id !== 'bf-copy' || !state.current?.brief) return;
   try {
