@@ -1,0 +1,17 @@
+{
+  "name": "vn-stock-advisor",
+  "version": "1.0.0",
+  "description": "Theo dõi, phân tích kỹ thuật, cơ bản và tin tức cổ phiếu Việt Nam, đưa ra khuyến nghị mua/bán",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "scan": "node scan.js",
+    "test": "node --test",
+    "ai-check": "node check-ai.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

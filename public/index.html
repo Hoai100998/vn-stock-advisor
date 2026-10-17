@@ -1,0 +1,874 @@
+<!doctype html>
+<html lang="vi" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VN Stock Advisor · Testing Terminal</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82f6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 3v18h18'/><path d='m19 9-5 5-4-4-3 3'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <!-- Topbar Header -->
+  <header class="topbar">
+    <div class="brand-group">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <div class="brand-title">VN Stock Advisor</div>
+        <div class="brand-badge">TERMINAL TESTER v1.6</div>
+      </div>
+    </div>
+
+    <!-- Search Box with Autocomplete Dropdown -->
+    <div class="search-container">
+      <form id="search" class="search-form" autocomplete="off">
+        <div class="search-wrap">
+          <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+          </svg>
+          <input id="search-input" placeholder="Tìm mã CP: FPT, HPG, VCB, VNINDEX…" maxlength="10" aria-label="Mã chứng khoán">
+          <button type="button" id="search-clear-btn" class="search-clear" title="Xóa tìm kiếm" hidden>✕</button>
+          <kbd class="kbd-hint">Ctrl K</kbd>
+        </div>
+        <button type="submit" class="btn btn-primary" id="search-btn">
+          <span>Phân tích</span>
+        </button>
+      </form>
+      <!-- Suggestions dropdown -->
+      <div id="search-suggestions" class="search-dropdown" hidden></div>
+    </div>
+
+    <button type="button" id="picks-btn" class="btn btn-primary btn-sm picks-btn" title="Danh sách cổ phiếu tiềm năng có thể mua">🔎 Cổ phiếu tiềm năng</button>
+    <button type="button" id="rank-btn" class="btn btn-glass btn-sm picks-btn" title="Bảng xếp hạng 4 yếu tố, backtest danh mục và độ chính xác các dự đoán">🎯 Xếp hạng</button>
+    <button type="button" id="pf-btn" class="btn btn-glass btn-sm picks-btn" title="Danh mục đầu tư thực tế: lãi/lỗ, T+2, rủi ro, hành vi giao dịch">💼 Danh mục</button>
+
+    <!-- VN-Index Market Pill -->
+    <div id="market" class="market-pill" title="Bấm để xem phân tích toàn diện VN-Index">
+      <span class="market-live-dot"></span>
+      <span class="market-content">Đang tải VN-Index…</span>
+    </div>
+
+    <!-- Header Actions -->
+    <div class="top-actions">
+      <!-- Test Tools Dropdown -->
+      <div class="dropdown" id="tools-dropdown">
+        <button id="tools-btn" class="btn btn-glass btn-sm" title="Công cụ kiểm thử & dữ liệu">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+          </svg>
+          <span>Test Tools</span>
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="dropdown-menu" id="tools-menu">
+          <div class="dropdown-header">Công cụ kiểm thử</div>
+          <button type="button" class="dropdown-item" id="btn-random-stock">
+            <span class="item-icon">🎲</span>
+            <div class="item-info">
+              <b>Test mã ngẫu nhiên</b>
+              <span>Chọn ngẫu nhiên 1 mã để phân tích</span>
+            </div>
+          </button>
+          <button type="button" class="dropdown-item" id="btn-test-alert">
+            <span class="item-icon">🔔</span>
+            <div class="item-info">
+              <b>Bắn cảnh báo test</b>
+              <span>Giả lập cảnh báo giá vào Drawer</span>
+            </div>
+          </button>
+          <button type="button" class="dropdown-item" id="btn-copy-json">
+            <span class="item-icon">📋</span>
+            <div class="item-info">
+              <b>Sao chép JSON phân tích</b>
+              <span>Copy toàn bộ payload hiện tại</span>
+            </div>
+          </button>
+          <button type="button" class="dropdown-item" id="btn-view-raw-json">
+            <span class="item-icon">🔍</span>
+            <div class="item-info">
+              <b>Mở JSON Inspector</b>
+              <span>Xem trực tiếp JSON payload</span>
+            </div>
+          </button>
+          <button type="button" class="dropdown-item" id="btn-ai-check">
+            <span class="item-icon">🤖</span>
+            <div class="item-info">
+              <b>Kiểm tra API key AI</b>
+              <span>Thử từng nhà cung cấp: Gemini, Mistral, Groq…</span>
+            </div>
+          </button>
+          <button type="button" class="dropdown-item" id="btn-quick-scan">
+            <span class="item-icon">🔄</span>
+            <div class="item-info">
+              <b>Quét lại toàn bộ danh mục</b>
+              <span>Cập nhật giá & tín hiệu mới</span>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Theme Switcher -->
+      <button id="theme-btn" class="btn-icon" aria-label="Đổi giao diện sáng/tối" title="Đổi giao diện sáng/tối">
+        <svg id="theme-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+        </svg>
+        <svg id="theme-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" hidden>
+          <circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>
+        </svg>
+      </button>
+
+      <!-- Alert Drawer Bell Button -->
+      <button id="alerts-btn" class="btn-icon alert-bell" aria-label="Cảnh báo" title="Trung tâm cảnh báo">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>
+        </svg>
+        <span id="alerts-count" class="badge-dot" hidden></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Quick Test Ribbon (Popular Stocks Ticker Bar) -->
+  <section class="test-ribbon" aria-label="Thanh chọn nhanh mã kiểm thử">
+    <div class="test-ribbon-label">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5">
+        <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>
+      </svg>
+      <span>TEST NHANH</span>
+    </div>
+    <div class="test-tickers" id="quick-tickers">
+      <button type="button" class="ticker-chip" data-sym="VNINDEX"><span class="chip-dot dot-index"></span><span class="chip-sym">VNINDEX</span><span class="chip-desc">Toàn cảnh</span></button>
+      <button type="button" class="ticker-chip" data-sym="FPT"><span class="chip-dot dot-tech"></span><span class="chip-sym">FPT</span><span class="chip-desc">Công nghệ</span></button>
+      <button type="button" class="ticker-chip" data-sym="HPG"><span class="chip-dot dot-steel"></span><span class="chip-sym">HPG</span><span class="chip-desc">Thép</span></button>
+      <button type="button" class="ticker-chip" data-sym="VCB"><span class="chip-dot dot-bank"></span><span class="chip-sym">VCB</span><span class="chip-desc">Ngân hàng</span></button>
+      <button type="button" class="ticker-chip" data-sym="MWG"><span class="chip-dot dot-retail"></span><span class="chip-sym">MWG</span><span class="chip-desc">Bán lẻ</span></button>
+      <button type="button" class="ticker-chip" data-sym="SSI"><span class="chip-dot dot-sec"></span><span class="chip-sym">SSI</span><span class="chip-desc">Chứng khoán</span></button>
+      <button type="button" class="ticker-chip" data-sym="VHM"><span class="chip-dot dot-real"></span><span class="chip-sym">VHM</span><span class="chip-desc">BĐS</span></button>
+      <button type="button" class="ticker-chip" data-sym="DGC"><span class="chip-dot dot-chem"></span><span class="chip-sym">DGC</span><span class="chip-desc">Hóa chất</span></button>
+      <button type="button" class="ticker-chip" data-sym="TCB"><span class="chip-dot dot-bank"></span><span class="chip-sym">TCB</span><span class="chip-desc">Tài chính</span></button>
+      <button type="button" class="ticker-chip" data-sym="MSN"><span class="chip-dot dot-retail"></span><span class="chip-sym">MSN</span><span class="chip-desc">Tiêu dùng</span></button>
+      <button type="button" class="ticker-chip" data-sym="VNM"><span class="chip-dot dot-food"></span><span class="chip-sym">VNM</span><span class="chip-desc">Sữa</span></button>
+      <button type="button" class="ticker-chip chip-random" id="btn-ribbon-random" title="Bấm để test ngẫu nhiên 1 mã khác">
+        <span>🎲 Random mã</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- Main Layout -->
+  <div class="layout">
+    <!-- Sidebar: Watchlist & Market Movers (Tăng/Giảm & Mua/Bán) -->
+    <aside class="sidebar">
+      <!-- 1. Danh mục theo dõi -->
+      <div class="side-head">
+        <div class="side-title">
+          <h2>Danh mục theo dõi</h2>
+          <span class="badge-count" id="wl-count">0</span>
+        </div>
+        <button id="scan-btn" class="btn btn-glass btn-xs" title="Quét lại toàn bộ danh mục">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" class="spin-icon">
+            <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+            <path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+            <path d="M16 21h5v-5"/>
+          </svg>
+          <span>Quét lại</span>
+        </button>
+      </div>
+
+      <!-- Watchlist Tools (Search & Filter) -->
+      <div class="wl-tools">
+        <div class="wl-search-wrap">
+          <input type="text" id="wl-search" placeholder="Lọc mã trong danh mục…" aria-label="Lọc mã">
+        </div>
+        <div class="wl-sort-btns">
+          <button type="button" class="btn-filter on" data-sort="default">Mặc định</button>
+          <button type="button" class="btn-filter" data-sort="score">Điểm số</button>
+          <button type="button" class="btn-filter" data-sort="change">% Biến động</button>
+        </div>
+      </div>
+
+      <!-- Watchlist Items Container -->
+      <div id="watchlist" class="watchlist"></div>
+
+      <!-- Quick Add Symbol to Watchlist -->
+      <form id="quick-add-form" class="quick-add-form">
+        <input type="text" id="quick-add-input" placeholder="+ Thêm mã CP vào danh mục" maxlength="10">
+        <button type="submit" class="btn btn-sm">Thêm</button>
+      </form>
+
+      <!-- 2. THỊ TRƯỜNG HÔM NAY: PHẦN TĂNG/GIẢM & KHỐI NGOẠI MUA/BÁN (MOVERS) -->
+      <section class="movers" id="movers">
+        <div class="side-head">
+          <div class="side-title">
+            <h2>Thị trường hôm nay</h2>
+          </div>
+          <select id="movers-floor" class="movers-floor" aria-label="Chọn sàn giao dịch">
+            <option value="HOSE" selected>Sàn HOSE</option>
+            <option value="HNX">Sàn HNX</option>
+            <option value="UPCOM">Sàn UPCoM</option>
+          </select>
+        </div>
+
+        <!-- Movers Tabs: Tăng mạnh, Giảm mạnh, Khối ngoại Mua, Khối ngoại Bán, Giá trị GD -->
+        <div class="movers-tabs" id="movers-tabs">
+          <button type="button" class="btn-filter on" data-tab="gainers">Tăng mạnh</button>
+          <button type="button" class="btn-filter" data-tab="losers">Giảm mạnh</button>
+          <button type="button" class="btn-filter" data-tab="fBuy">Khối ngoại Mua</button>
+          <button type="button" class="btn-filter" data-tab="fSell">Khối ngoại Bán</button>
+          <button type="button" class="btn-filter" data-tab="value">Giá trị GD</button>
+        </div>
+
+        <!-- Movers List Items -->
+        <div id="movers-list" class="movers-list">
+          <div class="movers-empty">Đang tải số liệu thị trường…</div>
+        </div>
+
+        <p class="movers-note">Số liệu phiên gần nhất (GTGD ≥ 1 tỷ). Bấm vào mã để phân tích chi tiết.</p>
+      </section>
+
+      <div class="sidebar-footer">
+        <div class="timer-line">
+          <span class="status-indicator"></span>
+          <span>Tự động quét mỗi 10 phút (giờ GD 9h–15h)</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main id="main">
+      <!-- Empty State (Interactive Testing Hub) -->
+      <div id="empty" class="empty-hub">
+        <div class="hub-hero">
+          <div class="hub-badge">VN STOCK ADVISOR · TESTING SUITE</div>
+          <h1 class="hub-title">Chào mừng bạn đến với Hệ thống Phân tích & Kiểm thử Chứng khoán</h1>
+          <p class="hub-subtitle">
+            Hệ thống tích hợp dữ liệu thời gian thực từ VNDirect, VPS, SSI, phân tích kỹ thuật đa chỉ báo (MA, RSI, MACD, Bollinger, ATR),
+            chấm điểm định lượng tài chính (BCTC), tâm lý tin tức CafeF/Vietstock và trợ lý AI Gemini.
+          </p>
+        </div>
+
+        <div class="hub-section-title">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>
+          </svg>
+          <span>CHỌN MÃ KIỂM THỬ THEO NHÓM NGÀNH</span>
+        </div>
+
+        <div class="hub-cards-grid">
+          <div class="hub-card" data-sym="FPT">
+            <div class="card-top">
+              <span class="hub-sym">FPT</span>
+              <span class="hub-cat tech">CÔNG NGHỆ</span>
+            </div>
+            <div class="hub-name">CTCP FPT (HOSE)</div>
+            <div class="hub-desc">Cổ phiếu công nghệ tăng trưởng, kiểm tra chỉ số BCTC, P/E và phân tích AI.</div>
+            <div class="hub-action">Test mã FPT →</div>
+          </div>
+
+          <div class="hub-card" data-sym="HPG">
+            <div class="card-top">
+              <span class="hub-sym">HPG</span>
+              <span class="hub-cat steel">THÉP & SX</span>
+            </div>
+            <div class="hub-name">Tập đoàn Hòa Phát (HOSE)</div>
+            <div class="hub-desc">Cổ phiếu chu kỳ ngành thép với thanh khoản lớn nhất thị trường.</div>
+            <div class="hub-action">Test mã HPG →</div>
+          </div>
+
+          <div class="hub-card" data-sym="VCB">
+            <div class="card-top">
+              <span class="hub-sym">VCB</span>
+              <span class="hub-cat bank">NGÂN HÀNG</span>
+            </div>
+            <div class="hub-name">Vietcombank (HOSE)</div>
+            <div class="hub-desc">Cổ phiếu vốn hóa lớn dẫn dắt thị trường, kiểm tra tín hiệu hỗ trợ / kháng cự.</div>
+            <div class="hub-action">Test mã VCB →</div>
+          </div>
+
+          <div class="hub-card" data-sym="MWG">
+            <div class="card-top">
+              <span class="hub-sym">MWG</span>
+              <span class="hub-cat retail">BÁN LẺ</span>
+            </div>
+            <div class="hub-name">Thế Giới Di Động (HOSE)</div>
+            <div class="hub-desc">Kiểm tra tin tức doanh thu kỷ lục quý gần nhất và đánh giá điểm Sentiment.</div>
+            <div class="hub-action">Test mã MWG →</div>
+          </div>
+
+          <div class="hub-card" data-sym="SSI">
+            <div class="card-top">
+              <span class="hub-sym">SSI</span>
+              <span class="hub-cat sec">CHỨNG KHOÁN</span>
+            </div>
+            <div class="hub-name">Chứng khoán SSI (HOSE)</div>
+            <div class="hub-desc">Độ nhạy cao theo chỉ số VN-Index, thích hợp test biểu đồ kỹ thuật & ATR.</div>
+            <div class="hub-action">Test mã SSI →</div>
+          </div>
+
+          <div class="hub-card" data-sym="VNINDEX">
+            <div class="card-top">
+              <span class="hub-sym">VNINDEX</span>
+              <span class="hub-cat index">CHỈ SỐ THỊ TRƯỜNG</span>
+            </div>
+            <div class="hub-name">Chỉ số VN-Index</div>
+            <div class="hub-desc">Xem tổng quan xu hướng toàn thị trường, số mã tăng giảm và tin vĩ mô.</div>
+            <div class="hub-action">Xem VN-Index →</div>
+          </div>
+        </div>
+
+        <div class="hub-features">
+          <div class="feature-item">
+            <span class="feat-icon">📊</span>
+            <b>Biểu đồ nến TradingView</b>
+            <span>Tích hợp MA20, MA50, MA200, dải Bollinger và khối lượng giao dịch.</span>
+          </div>
+          <div class="feature-item">
+            <span class="feat-icon">🤖</span>
+            <b>Trí tuệ nhân tạo Gemini</b>
+            <span>Đọc dữ liệu giá, BCTC, tin tức để đề xuất vùng mua, cắt lỗ và mục tiêu.</span>
+          </div>
+          <div class="feature-item">
+            <span class="feat-icon">🔔</span>
+            <b>Cảnh báo thông minh</b>
+            <span>Đặt ngưỡng giá mục tiêu và nhận thông báo ngay khi giá chạm mốc.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cổ phiếu tiềm năng -->
+      <div id="picks" class="picks-view" hidden>
+        <section class="card picks-head">
+          <div class="card-head">
+            <div>
+              <h2 class="picks-title">Cổ phiếu tiềm năng có thể mua</h2>
+              <div id="pk-sub" class="muted small"></div>
+            </div>
+            <div class="picks-actions">
+              <button type="button" class="btn btn-glass btn-sm" id="pk-ai-btn" title="Chỉ chạy lại bước Gemini trên danh sách hiện tại">✦ Gemini đánh giá lại</button>
+              <button type="button" class="btn btn-primary btn-sm" id="pk-run-btn">↻ Quét lại thị trường</button>
+            </div>
+          </div>
+          <div id="pk-progress" class="pk-progress" hidden>
+            <div class="pk-progress-label" id="pk-progress-label"></div>
+            <div class="pk-bar"><i id="pk-bar-fill"></i></div>
+          </div>
+          <div id="pk-market" class="pk-market"></div>
+          <p class="muted small pk-method">
+            Cách chọn: quét mọi mã <b>sàn HOSE</b> có giá trị giao dịch trung bình 20 phiên ≥ 5 tỷ/phiên → chấm kỹ thuật, cơ bản, khối ngoại và nhận diện
+            setup (bứt phá, xu hướng tăng, điều chỉnh về hỗ trợ, hồi phục từ quá bán, tích lũy, khối ngoại gom) → phân tích sâu kèm tin tức,
+            loại mã có tin rủi ro → Gemini đánh giá từng mã. Đây là sàng lọc theo dữ liệu, <b>không phải dự báo chắc chắn</b>.
+          </p>
+        </section>
+        <div id="pk-list" class="pk-list"></div>
+        <details id="pk-rejected" class="card pk-rejected" hidden>
+          <summary>Đã loại sau khi Gemini đánh giá <span id="pk-rejected-count"></span></summary>
+          <div id="pk-rejected-list"></div>
+        </details>
+      </div>
+
+      <!-- Loading State -->
+      <!-- Xếp hạng 4 yếu tố & độ chính xác dự đoán -->
+      <div id="rankview" class="picks-view" hidden>
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2 class="picks-title">🎯 Xếp hạng 4 yếu tố</h2>
+              <div id="rk-sub" class="muted small"></div>
+            </div>
+          </div>
+          <p class="muted small" style="margin:0 0 12px;line-height:1.55">So sánh mỗi mã với rổ cổ phiếu <b>sàn HOSE có giá trị giao dịch trung bình 20 phiên ≥ 5 tỷ</b> theo <b>động lượng 12 tháng</b> (bỏ tháng gần nhất),
+            <b>khoảng cách tới đỉnh 52 tuần</b>, <b>biến động thấp</b> và <b>độ mạnh xu hướng (ADX)</b>. Điểm 0–100 là phân vị trung bình trong rổ.
+            Khi kiểm tra ngoài mẫu (2025–2026), top 8 theo điểm này thắng VN-Index ở 2/3 số kỳ 20 phiên, trong khi điểm kỹ thuật cũ không dự báo được.</p>
+          <div id="rk-board"></div>
+        </section>
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h3>🧪 Backtest danh mục top N</h3>
+              <div class="muted small">Mỗi kỳ nắm giữ N mã điểm cao nhất, chia đều vốn, tính phí, thuế, T+2, trần/sàn. Tín hiệu tại giá đóng cửa, khớp giá mở cửa phiên sau.</div>
+            </div>
+          </div>
+          <form id="rk-form" class="bt-form">
+            <label><span>Số năm</span><select name="years"><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option></select></label>
+            <label><span>Số mã nắm giữ</span><input name="top" type="number" min="3" max="15" value="8"></label>
+            <label><span>Tái cơ cấu (phiên)</span><input name="rebalance" type="number" min="5" max="60" step="5" value="20"></label>
+            <label><span>Lọc trên MA200</span><select name="trend"><option value="1" selected>Có</option><option value="0">Không</option></select></label>
+            <button type="submit" class="btn btn-primary btn-sm" id="rk-run">▶ Chạy backtest</button>
+          </form>
+          <div id="rk-bt" style="margin-top:14px"></div>
+        </section>
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h3>📈 Độ chính xác dự đoán thực tế</h3>
+              <div class="muted small">Mọi khuyến nghị được tự ghi lại khi bạn xem mã, khi quét danh mục, khi Gemini/hội đồng/bộ lọc đưa ra quyết định — rồi tự chấm sau 5, 10, 20 phiên bằng giá thật.</div>
+            </div>
+            <button type="button" class="btn btn-glass btn-sm" id="pd-refresh">↻ Chấm lại</button>
+          </div>
+          <div id="pd-body"></div>
+        </section>
+      </div>
+
+      <!-- Danh mục đầu tư thực tế -->
+      <div id="portfolio" class="picks-view" hidden>
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2 class="picks-title">💼 Danh mục đầu tư</h2>
+              <div id="pf-sub" class="muted small">Ghi lại lệnh mua/bán để theo dõi lãi/lỗ sau phí và thuế, khối lượng bán được theo T+2 và rủi ro danh mục.</div>
+            </div>
+            <button type="button" class="btn btn-glass btn-sm" id="pf-refresh">↻ Cập nhật giá</button>
+          </div>
+          <form id="pf-form" class="bt-form">
+            <label><span>Lệnh</span><select name="type"><option value="BUY">Mua</option><option value="SELL">Bán</option></select></label>
+            <label><span>Mã</span><input name="symbol" maxlength="10" required placeholder="FPT"></label>
+            <label><span>Khối lượng</span><input name="qty" type="number" min="1" step="1" required placeholder="1000"></label>
+            <label><span>Giá (nghìn đ)</span><input name="price" type="number" min="0.01" step="0.01" required placeholder="58.2"></label>
+            <label><span>Ngày</span><input name="date" type="date" required></label>
+            <label class="grow"><span>Ghi chú</span><input name="note" maxlength="200" placeholder="Lý do mua/bán"></label>
+            <button type="submit" class="btn btn-primary btn-sm">+ Ghi lệnh</button>
+          </form>
+        </section>
+        <div id="pf-body"></div>
+      </div>
+
+      <div id="loading" class="loading-state" hidden>
+        <div class="radar-spinner">
+          <div class="spinner-ring"></div>
+          <div class="spinner-ring ring-2"></div>
+          <div class="spinner-dot"></div>
+        </div>
+        <div class="loading-text">
+          <h3 id="loading-msg">Đang thu thập dữ liệu & tổng hợp tin tức…</h3>
+          <p class="muted small">Đang kết nối VNDirect, VPS, CafeF, Vietstock và tính toán điểm số</p>
+        </div>
+      </div>
+
+      <!-- Error State -->
+      <div id="error" class="error-state" hidden>
+        <div class="error-icon">⚠️</div>
+        <div class="error-content">
+          <h3 class="error-title">Không thể tải dữ liệu</h3>
+          <p id="error-msg" class="error-desc"></p>
+          <div class="error-actions">
+            <button type="button" class="btn btn-secondary btn-sm" id="error-retry">Thử lại</button>
+            <button type="button" class="btn btn-glass btn-sm" data-sym="FPT">Test mã FPT thay thế</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stock Analysis Report -->
+      <div id="report" class="report-container" hidden>
+        <!-- Hero Header Card -->
+        <section class="card hero-card">
+          <div class="hero-left">
+            <div class="sym-line">
+              <h1 id="r-symbol" class="symbol-title"></h1>
+              <span id="r-exchange" class="tag exchange-tag"></span>
+              <span id="r-live-tag" class="tag live-tag">● Trực tuyến</span>
+            </div>
+            <div id="r-name" class="company-name"></div>
+            <div class="price-line">
+              <span id="r-price" class="current-price"></span>
+              <div id="r-change-badge" class="change-badge">
+                <span id="r-change"></span>
+              </div>
+            </div>
+            <div id="r-date" class="date-source-line muted small"></div>
+          </div>
+
+          <div class="hero-right">
+            <div class="rec-header">
+              <div id="r-rec" class="recommendation-badge"></div>
+            </div>
+            <div class="rec-score-row">
+              <div class="metric-pill">
+                <span class="pill-label">Tổng điểm</span>
+                <span class="pill-val"><b id="r-total"></b>/100</span>
+              </div>
+              <div class="metric-pill">
+                <span class="pill-label">Độ đồng thuận</span>
+                <span class="pill-val"><b id="r-conf"></b></span>
+              </div>
+            </div>
+            <p id="r-desc" class="rec-desc"></p>
+            <div class="hero-actions">
+              <button id="watch-btn" class="btn btn-primary btn-sm"></button>
+              <button id="btn-open-json-modal" class="btn btn-glass btn-sm" title="Xem payload JSON chi tiết của mã này">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                  <line x1="16" y1="13" x2="8" y2="13"/>
+                  <line x1="16" y1="17" x2="8" y2="17"/>
+                  <polyline points="10 9 9 9 8 9"/>
+                </svg>
+                <span>Xem JSON</span>
+              </button>
+              <button id="copy-json-hero" class="btn btn-glass btn-sm" title="Sao chép toàn bộ dữ liệu JSON mã này">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
+                  <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+                </svg>
+                <span>Copy JSON</span>
+              </button>
+              <button id="test-alert-hero" class="btn btn-glass btn-sm" title="Bắn thử cảnh báo giá cho mã này">
+                <span>🔔 Test Alert</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Warnings Banner -->
+        <div id="r-warnings" class="warnings-container"></div>
+
+        <!-- Sticky Navigation Segmented Tabs for Logical Feature Testing -->
+        <nav class="report-nav" id="report-nav">
+          <button type="button" class="nav-tab on" data-target="sec-decision">⚡ Quyết định Mua/Bán</button>
+          <button type="button" class="nav-tab" data-target="sec-chart">📈 Biểu đồ Kỹ thuật</button>
+          <button type="button" class="nav-tab" data-target="sec-foreign">🌐 Khối ngoại Mua/Bán</button>
+          <button type="button" class="nav-tab" data-target="sec-overview">⭐ Đánh giá Nhanh</button>
+          <button type="button" class="nav-tab" data-target="sec-ai">🤖 Phân tích AI</button>
+          <button type="button" class="nav-tab" data-target="sec-committee">⚖️ Hội đồng đầu tư</button>
+          <button type="button" class="nav-tab" data-target="sec-backtest">🧪 Backtest</button>
+          <button type="button" class="nav-tab" data-target="sec-fund">📑 Tài chính BCTC</button>
+          <button type="button" class="nav-tab" data-target="sec-news">📰 Tin tức & Tâm lý</button>
+          <button type="button" class="nav-tab" data-target="sec-alerts">🔔 Cảnh báo Giá</button>
+          <button type="button" class="nav-tab tab-all" data-target="all">⚡ Xem tất cả</button>
+        </nav>
+
+        <!-- Section 1: THẺ QUYẾT ĐỊNH MUA / BÁN (DECISION CARD) -->
+        <div id="sec-decision" class="report-section active">
+          <section class="card decision-card" id="decision-card">
+            <div class="dc-top">
+              <div class="dc-verdict-wrap">
+                <div class="dc-verdict" id="dc-verdict"></div>
+                <div class="dc-meta" id="dc-meta"></div>
+              </div>
+              <p class="dc-headline" id="dc-headline"></p>
+              <div class="dc-ai-status" id="dc-ai-status"></div>
+            </div>
+
+            <div class="dc-grid">
+              <!-- Cột Hành động Mua / Bán -->
+              <div class="dc-box">
+                <h4>Hành động Khuyến nghị</h4>
+                <div class="dc-act">
+                  <b>Nếu chưa có cổ phiếu (Giải ngân):</b>
+                  <span id="dc-act-new"></span>
+                </div>
+                <div class="dc-act">
+                  <b>Nếu đang nắm giữ (Chốt lời / Quản trị rủi ro):</b>
+                  <span id="dc-act-hold"></span>
+                </div>
+              </div>
+
+              <!-- Cột Mức giá then chốt (Vùng mua, cắt lỗ, mục tiêu) -->
+              <div class="dc-box">
+                <h4>Các Mức Giá Then Chốt</h4>
+                <div class="dc-levels" id="dc-levels"></div>
+              </div>
+
+              <!-- Dòng tiền & Khối ngoại mua/bán trong phiên -->
+              <div class="dc-box">
+                <h4>Dòng tiền & Khối ngoại (Phiên gần nhất)</h4>
+                <div id="dc-flow"></div>
+              </div>
+
+              <!-- Điều kiện theo dõi thay đổi quyết định -->
+              <div class="dc-box">
+                <h4>Điều kiện cần theo dõi</h4>
+                <div id="dc-watch" class="dc-watch"></div>
+              </div>
+            </div>
+
+            <!-- 3 Luận điểm Mua (Điểm cộng) & 3 Rủi ro (Điểm trừ) -->
+            <div class="dc-grid">
+              <div class="dc-box dc-list">
+                <h4 class="up">▲ Luận điểm ủng hộ Mua (Top điểm cộng)</h4>
+                <ul id="dc-pros"></ul>
+              </div>
+              <div class="dc-box dc-list">
+                <h4 class="down">▼ Rủi ro cần cảnh giác (Top điểm trừ)</h4>
+                <ul id="dc-cons"></ul>
+              </div>
+            </div>
+          </section>
+
+          <!-- Diverging Scores (Kỹ thuật, Cơ bản, Tin tức) -->
+          <section class="card rank-card" id="rank-card"></section>
+          <section class="scores" id="r-scores"></section>
+
+          <!-- Signals & Plan Grid -->
+          <div class="grid2">
+            <!-- Reasons & Signals -->
+            <section class="card signals-card">
+              <div class="card-head">
+                <h3>Hệ thống Tín hiệu & Luận điểm Chi tiết</h3>
+                <span class="badge-subtle">Quy tắc định lượng</span>
+              </div>
+              <div id="r-signals"></div>
+            </section>
+
+            <!-- Plan & Technical Indicators Stack -->
+            <div class="stack">
+              <section class="card plan-card" id="plan-card">
+                <div class="card-head">
+                  <h3>Kế hoạch Giao dịch Tham khảo</h3>
+                  <span class="badge-subtle">Kỹ thuật & ATR</span>
+                </div>
+                <div id="r-plan" class="kv"></div>
+                <p class="muted small plan-footnote">
+                  Cắt lỗ ≈ giá − 2×ATR (không thấp hơn hỗ trợ 20 phiên − 3%). Mục tiêu ≈ giá + 3×ATR hoặc kháng cự 20 phiên. Đơn vị: nghìn VNĐ.
+                </p>
+              </section>
+
+              <section class="card indicators-card">
+                <div class="card-head">
+                  <h3>Chỉ báo Kỹ thuật Chi tiết</h3>
+                </div>
+                <div id="r-ind" class="kv"></div>
+              </section>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 2: KHỐI NGOẠI MUA / BÁN (20 PHIÊN GẦN NHẤT) -->
+        <div id="sec-foreign" class="report-section">
+          <section class="card foreign-card" id="foreign-card">
+            <div class="card-head">
+              <h3>Giao dịch Khối ngoại (20 phiên gần nhất)</h3>
+              <span id="foreign-summary" class="badge-subtle"></span>
+            </div>
+            <div id="foreign-chart" class="foreign-chart"></div>
+            <div id="foreign-stats" class="foreign-stats"></div>
+          </section>
+        </div>
+
+        <!-- Section 3: TỔNG HỢP ĐÁNH GIÁ NHANH (7 NHÓM CHỈ BÁO CỐT LÕI) -->
+        <div id="sec-overview" class="report-section">
+          <section class="card overview-card" id="overview-card">
+            <div class="card-head">
+              <h3>Tổng hợp Đánh giá Nhanh theo 7 Nhóm Tín hiệu</h3>
+              <span class="badge-subtle">Xác nhận chéo đa chỉ báo</span>
+            </div>
+            <div id="overview-grid" class="overview-grid"></div>
+          </section>
+        </div>
+
+        <!-- Section 4: Interactive Chart -->
+        <div id="sec-chart" class="report-section">
+          <section class="card chart-card">
+            <div class="card-head">
+              <div class="chart-title-group">
+                <h3>Biểu đồ Kỹ thuật & Khối lượng</h3>
+                <div class="series-key">
+                  <span class="key-item"><i class="sw s1"></i>MA20</span>
+                  <span class="key-item"><i class="sw s2"></i>MA50</span>
+                  <span class="key-item"><i class="sw s3"></i>MA200</span>
+                  <span class="key-item"><i class="sw vol"></i>Khối lượng</span>
+                </div>
+              </div>
+              <div class="seg" id="range">
+                <button data-days="66">3 Tháng</button>
+                <button data-days="132" class="on">6 Tháng</button>
+                <button data-days="250">1 Năm</button>
+                <button data-days="0">Tất cả</button>
+              </div>
+            </div>
+            <div class="legend" id="chart-legend"></div>
+            <div id="chart" class="chart"></div>
+          </section>
+        </div>
+
+        <!-- Section 5: Gemini AI Analysis Card -->
+        <div id="sec-ai" class="report-section">
+          <section class="card ai-card" id="ai-card">
+            <div class="card-head">
+              <div class="ai-brand-head">
+                <div class="ai-sparkle">✦</div>
+                <h3>Trợ lý Phân tích AI <span class="muted small" id="ai-model"></span></h3>
+              </div>
+              <div class="ai-btns">
+                <button id="ai-btn" class="btn btn-primary btn-sm">
+                  <span>⚡ Phân tích lại bằng AI</span>
+                </button>
+                <button id="btn-copy-ai" class="btn btn-glass btn-sm" title="Sao chép toàn bộ nhận định AI vào clipboard">
+                  <span>📋 Copy nhận định</span>
+                </button>
+              </div>
+            </div>
+            <div id="ai-body" class="ai-body-content"></div>
+          </section>
+        </div>
+
+        <!-- Hội đồng đầu tư: phe mua / phe bán / giám đốc đầu tư -->
+        <div id="sec-committee" class="report-section">
+          <section class="card" id="cm-card">
+            <div class="card-head">
+              <div>
+                <h3>Hội đồng đầu tư <span class="muted small">· phe mua ⇄ phe bán → giám đốc đầu tư</span></h3>
+                <div class="muted small">3 chuyên viên Gemini tranh luận trên cùng dữ liệu, có căn cứ backtest 3 năm và rủi ro lịch sử. Tốn 3 lượt gọi Gemini.</div>
+              </div>
+              <button type="button" id="cm-btn" class="btn btn-primary btn-sm">⚖️ Triệu tập hội đồng</button>
+            </div>
+            <div id="cm-body"></div>
+          </section>
+        </div>
+
+        <!-- Backtest chiến lược theo luật T+2, biên độ, lô 100, phí & thuế -->
+        <div id="sec-backtest" class="report-section">
+          <section class="card" id="bt-card">
+            <div class="card-head">
+              <div>
+                <h3>Backtest chiến lược</h3>
+                <div class="muted small">Mô phỏng theo luật thị trường VN: T+2, biên độ trần/sàn, lô 100 cp, phí 0,15%/chiều, thuế bán 0,1%. Tín hiệu theo giá đóng cửa, khớp giá mở cửa phiên sau.</div>
+              </div>
+            </div>
+            <form id="bt-form" class="bt-form">
+              <label><span>Chiến lược</span><select name="strategy" id="bt-strategy"></select></label>
+              <label><span>Số năm</span>
+                <select name="years"><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option></select>
+              </label>
+              <span id="bt-params" class="bt-params"></span>
+              <label><span>Cắt lỗ %</span><input name="stop" type="number" min="0" max="50" step="0.5" placeholder="không"></label>
+              <label><span>Chốt lời %</span><input name="take" type="number" min="0" max="200" step="1" placeholder="không"></label>
+              <label><span>Tỷ trọng %</span><input name="position" type="number" min="10" max="100" step="10" value="100"></label>
+              <button type="submit" class="btn btn-primary btn-sm" id="bt-run">▶ Chạy backtest</button>
+            </form>
+            <p id="bt-desc" class="muted small bt-desc"></p>
+            <div id="bt-body"></div>
+          </section>
+        </div>
+
+        <!-- Section 6: Fundamentals -->
+        <div id="sec-fund" class="report-section">
+          <section class="card fundamentals-card" id="fund-card">
+            <div class="card-head">
+              <h3>Chỉ số Tài chính & Báo cáo Cơ bản</h3>
+              <span id="r-fund-date" class="muted small"></span>
+            </div>
+            <div id="r-fund" class="fund-grid"></div>
+          </section>
+        </div>
+
+        <!-- Section 7: News & Sentiment -->
+        <div id="sec-news" class="report-section">
+          <section class="card news-card">
+            <div class="card-head">
+              <div class="news-head-left">
+                <h3>Tin tức & Đánh giá Tâm lý Thị trường</h3>
+                <span id="r-news-count" class="muted small"></span>
+              </div>
+              <div class="seg" id="news-filter">
+                <button data-f="all" class="on">Tất cả</button>
+                <button data-f="tich_cuc">Tích cực</button>
+                <button data-f="tieu_cuc">Tiêu cực</button>
+                <button data-f="trung_lap">Trung lập</button>
+              </div>
+            </div>
+            <ul id="r-news" class="news"></ul>
+          </section>
+        </div>
+
+        <!-- Section 8: Price Alert Settings & Quick Presets -->
+        <div id="sec-alerts" class="report-section">
+          <section class="card alert-setting-card" id="alert-form-card">
+            <div class="card-head">
+              <h3>Cài đặt Cảnh báo Giá cho <span id="af-symbol" class="accent-text"></span></h3>
+              <span class="badge-subtle">Hệ thống thông báo</span>
+            </div>
+
+            <!-- Quick Presets for Easy Testing -->
+            <div class="alert-presets">
+              <span class="preset-label">Mẫu test nhanh theo giá hiện tại:</span>
+              <div class="preset-chips" id="alert-presets-chips">
+                <button type="button" class="preset-chip" data-pct="3">+3% (Vượt đỉnh)</button>
+                <button type="button" class="preset-chip" data-pct="5">+5% (Chốt lời 1)</button>
+                <button type="button" class="preset-chip" data-pct="10">+10% (Chốt lời 2)</button>
+                <button type="button" class="preset-chip" data-pct="-3">-3% (Cảnh báo chỉnh)</button>
+                <button type="button" class="preset-chip" data-pct="-5">-5% (Cắt lỗ sớm)</button>
+                <button type="button" class="preset-chip" data-pct="-7">-7% (Cắt lỗ chuẩn)</button>
+              </div>
+            </div>
+
+            <form id="alert-form" class="alert-form">
+              <label>
+                <span>Báo khi giá ≥ (nghìn VNĐ)</span>
+                <input name="priceAbove" id="af-price-above" type="number" step="0.05" min="0" placeholder="vd 65.5">
+              </label>
+              <label>
+                <span>Báo khi giá ≤ (nghìn VNĐ)</span>
+                <input name="priceBelow" id="af-price-below" type="number" step="0.05" min="0" placeholder="vd 52.0">
+              </label>
+              <label class="grow">
+                <span>Ghi chú theo dõi</span>
+                <input name="note" id="af-note" maxlength="200" placeholder="Lý do theo dõi, vùng cắt lỗ hoặc kế hoạch giải ngân…">
+              </label>
+              <button type="submit" class="btn btn-primary" id="af-submit">
+                <span>Lưu & theo dõi</span>
+              </button>
+            </form>
+          </section>
+        </div>
+      </div>
+
+      <!-- Disclaimer Footer -->
+      <footer class="disclaimer">
+        <div class="disclaimer-content">
+          <div class="disclaimer-icon">ℹ️</div>
+          <div class="disclaimer-text">
+            Công cụ tổng hợp dữ liệu thời gian thực từ các nguồn công khai (VNDirect, VPS, SSI, Google News, CafeF, Vietstock)
+            và tính điểm theo quy tắc định lượng. Kết quả <b>chỉ mang tính tham khảo, phục vụ kiểm thử và nghiên cứu, không phải lời khuyên đầu tư tài chính</b>.
+            Nhà đầu tư tự chịu trách nhiệm với quyết định của mình.
+          </div>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <!-- Alerts Slideover Drawer -->
+  <div id="drawer" class="drawer" hidden>
+    <div class="drawer-head">
+      <div class="drawer-title-group">
+        <h3>Trung tâm Cảnh báo</h3>
+        <span class="badge-subtle" id="drawer-count-badge">Lịch sử thông báo</span>
+      </div>
+      <div class="drawer-actions">
+        <button id="btn-create-test-alert" class="btn btn-glass btn-xs" title="Tạo 1 cảnh báo ngẫu nhiên để kiểm thử">
+          + Thử alert
+        </button>
+        <button id="drawer-close" class="btn-icon" aria-label="Đóng bảng cảnh báo">✕</button>
+      </div>
+    </div>
+    <ul id="alerts-list" class="alerts"></ul>
+  </div>
+
+  <!-- Raw JSON Inspector Modal -->
+  <div id="json-modal" class="modal-overlay" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <div class="modal-title-group">
+          <h3>JSON Inspector Payload</h3>
+          <span class="badge-subtle" id="json-modal-sym"></span>
+        </div>
+        <div class="modal-actions">
+          <button id="btn-copy-modal-json" class="btn btn-primary btn-xs">Sao chép</button>
+          <button id="btn-close-json-modal" class="btn-icon">✕</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <pre><code id="json-modal-content"></code></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
