@@ -1,6 +1,7 @@
 // Bộ lọc cổ phiếu tiềm năng, quét toàn thị trường theo 3 bước:
 //  1. Lọc nhanh mọi mã đạt tiêu chí sàn + thanh khoản (mặc định HOSE, ≥ 5 tỷ/phiên): chấm kỹ thuật + cơ bản + khối ngoại, nhận diện setup.
-//     Bắt buộc: thanh khoản ĐỀU (TB 20 phiên ≥ ngưỡng và ≥ 16/20 phiên đạt ngưỡng) và "cổ ngon" (qualityCheck).
+//     Bắt buộc: thanh khoản ĐỀU (TB 20 phiên ≥ ngưỡng và ≥ 16/20 phiên đạt ngưỡng), "cổ ngon" (qualityCheck)
+//     và thuộc ngành đang được mua ròng hoặc top nhóm ngành hút tiền (sectorCheck).
 //  2. Phân tích đầy đủ (có tin tức) nhóm dẫn đầu, loại mã có tin rủi ro hoặc bị chấm tiêu cực.
 //  3. Gemini đánh giá và xếp hạng danh sách cuối trong một lần gọi.
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
@@ -16,6 +17,7 @@ import { getSectorFlows } from './sectors.js';
 // ---------- Tiêu chí "cổ ngon" (cơ bản doanh nghiệp) và thanh khoản đều ----------
 export const QUALITY_RULES = { minRoe: 0.12, minProfitGrowth: 0, maxPe: 25, maxDebtToEquity: 1.5 };
 export const LIQUIDITY_RULES = { days: 20, minDays: 16 };
+export const SECTOR_RULES = { period: 5, top: 5 }; // dòng tiền ngành 5 phiên: ròng > 0 hoặc thuộc top 5 ngành
 const FINANCIAL = /ngân hàng|chứng khoán|bảo hiểm|tài chính/i;
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
@@ -50,6 +52,33 @@ export function qualityCheck(f, sectorName = '') {
   if (!fin && f.debtToEquity != null) parts.push(clamp01((R.maxDebtToEquity - f.debtToEquity) / R.maxDebtToEquity));
   const score = parts.length ? Math.round((parts.reduce((a, b) => a + b, 0) / parts.length) * 100) : null;
   return { pass: failed.length === 0, score, checks, failed };
+}
+
+/**
+ * Ngành của mã có đang được mua không: dòng tiền ròng ước tính N phiên > 0 hoặc nằm trong top ngành hút tiền.
+ * @param {{ name: string, rank: number, total: number, net: number }|null} s
+ */
+export function sectorCheck(s, { top = SECTOR_RULES.top, period = SECTOR_RULES.period } = {}) {
+  if (!s) return { pass: false, label: 'Chưa xác định được ngành' };
+  const inTop = s.rank <= top, buying = s.net > 0;
+  const tỷ = `${s.net >= 0 ? '+' : ''}${(s.net / 1e9).toFixed(0)} tỷ`;
+  return {
+    pass: inTop || buying,
+    label: `Ngành ${s.name}: ${buying ? 'đang được mua ròng' : 'bị bán ròng'} ${tỷ} (${period} phiên), hạng ${s.rank}/${s.total}${inTop ? ` — top ${top} ngành` : ''}`,
+  };
+}
+
+/**
+ * Bổ sung điều kiện từ BCTC quý: lợi nhuận quý gần nhất không giảm so với cùng kỳ (chặn mã "ngon" theo số liệu 4 quý
+ * nhưng đang xấu đi ở quý mới nhất).
+ */
+export function withEarnings(q, e) {
+  if (!e || e.profitYoY == null) return q;
+  const ok = e.profitYoY >= 0;
+  const label = `Quý ${e.latest}: lợi nhuận ${ok ? 'tăng' : 'giảm'} ${Math.round(Math.abs(e.profitYoY) * 100)}% so cùng kỳ${e.trend === 'TANG_TOC' ? ', đang tăng tốc' : ''}`;
+  const checks = [...q.checks, { ok, label }];
+  const failed = checks.filter((c) => !c.ok).map((c) => c.label);
+  return { ...q, checks, failed, pass: failed.length === 0 };
 }
 
 /** Thanh khoản đều: TB N phiên ≥ ngưỡng và ít nhất minDays phiên có giá trị khớp lệnh ≥ ngưỡng (đồng). */
@@ -122,7 +151,9 @@ async function quickScan(item, ctx) {
   const avgValue20 = i.avgVolume20 * close * 1000;
   if (avgValue20 < screenCriteria().minValue) return null;
   const liquidity = liquidityCheck(bars, screenCriteria().minValue);
-  const quality = qualityCheck(fund, ctx.sectorOf?.get(item.symbol) || '');
+  const sec = ctx.sectorOf?.get(item.symbol) || null;
+  const quality = qualityCheck(fund, sec?.name || '');
+  const sector = sec ? { ...sec, ...sectorCheck(sec) } : { ...sectorCheck(null) };
 
   const setups = detectSetups({ close, changePct, i, plan: tech.plan, faScore: fa.score ?? 0, flow: tech.flow });
   // Tiêu chí chính: điểm xếp hạng 4 yếu tố (đã kiểm chứng). Chỉ nhóm ≥ 70 và trên MA200 thắng VN-Index ổn định,
@@ -133,10 +164,40 @@ async function quickScan(item, ctx) {
     symbol: item.symbol, exchange: item.exchange, close, changePct,
     quick: Math.round(quick), technical: tech.score, fundamental: fa.score, setups, avgValue20,
     rankScore: rank?.score ?? null, aboveMa200: rank?.aboveMa200 ?? null,
-    liquidity, quality,
+    liquidity, quality, sector,
     // Xếp hạng chung: nửa điểm xu hướng (xếp hạng 4 yếu tố) + nửa điểm chất lượng doanh nghiệp
     combined: quick != null && quality.score != null ? Math.round((quick + quality.score) / 2) : null,
   };
+}
+
+/**
+ * Gợi ý theo ngành: với mỗi ngành đang được mua, các mã thanh khoản đều + cơ bản tốt, xếp theo điểm chung.
+ * Đánh dấu mã đã đủ điều kiện (vào danh sách cuối) và mã còn chờ xu hướng (điểm xếp hạng < 70 hoặc dưới MA200).
+ */
+function sectorPicks(scanned, flows, finalSet, trendOk, perSector = 4) {
+  const bySector = new Map();
+  for (const c of scanned) {
+    if (!c.sector?.pass || !c.liquidity.pass || !c.quality.pass) continue;
+    if (!bySector.has(c.sector.name)) bySector.set(c.sector.name, []);
+    bySector.get(c.sector.name).push(c);
+  }
+  return (flows?.sectors || []).map((s, k) => ({ s, rank: k + 1 }))
+    .filter(({ s, rank }) => s.net > 0 || rank <= SECTOR_RULES.top)
+    .map(({ s, rank }) => {
+      // Mã đã chọn trước, rồi mã đủ điều kiện xu hướng, rồi theo điểm chung
+      const tier = (c) => (finalSet.has(c.symbol) ? 0 : trendOk(c) ? 1 : 2);
+      const list = (bySector.get(s.name) || []).sort((a, b) => tier(a) - tier(b) || (b.combined ?? 0) - (a.combined ?? 0));
+      return {
+        name: s.name, rank, net: s.net, foreignNet: s.foreignNet, count: s.count,
+        stocks: list.slice(0, perSector).map((c) => ({
+          symbol: c.symbol, close: c.close, changePct: c.changePct, rankScore: c.quick, aboveMa200: c.aboveMa200,
+          quality: c.quality.score, combined: c.combined, avgValue: Math.round(c.liquidity.avg),
+          status: finalSet.has(c.symbol) ? 'PICK' : trendOk(c) ? 'TREND_OK' : 'WAIT_TREND',
+          waitReason: trendOk(c) ? null : c.aboveMa200 === false ? 'giá dưới MA200' : `điểm xu hướng ${c.quick ?? '?'} < 70`,
+        })),
+        more: Math.max(0, list.length - perSector),
+      };
+    });
 }
 
 async function pool(items, worker, onDone) {
@@ -162,9 +223,12 @@ async function run() {
   const { bars: indexBars } = await getPriceHistory('VNINDEX');
   const date = indexBars.at(-1).time;
   const market = await marketContext().catch(() => null);
-  const flows = await getSectorFlows(5).catch(() => null);
+  const flows = await getSectorFlows(SECTOR_RULES.period).catch(() => null);
   const sectorOf = new Map();
-  for (const s of flows?.sectors || []) for (const x of s.stocks) sectorOf.set(x.symbol, s.name);
+  (flows?.sectors || []).forEach((s, k) => {
+    const info = { name: s.name, rank: k + 1, total: flows.sectors.length, net: s.net, foreignNet: s.foreignNet, ret: s.ret };
+    for (const x of s.stocks) sectorOf.set(x.symbol, info);
+  });
   const ctx = { indexBars, market, sectorOf };
 
   // Bước 1
@@ -179,10 +243,11 @@ async function run() {
     scanned: scanned.length,
     liquidity: scanned.filter((c) => c.liquidity.pass).length,
     quality: scanned.filter((c) => c.liquidity.pass && c.quality.pass).length,
-    trend: scanned.filter((c) => c.liquidity.pass && c.quality.pass && trendOk(c)).length,
+    sector: scanned.filter((c) => c.liquidity.pass && c.quality.pass && c.sector.pass).length,
+    trend: scanned.filter((c) => c.liquidity.pass && c.quality.pass && c.sector.pass && trendOk(c)).length,
   };
   const shortlist = scanned
-    .filter((c) => c.liquidity.pass && c.quality.pass && trendOk(c))
+    .filter((c) => c.liquidity.pass && c.quality.pass && c.sector.pass && trendOk(c))
     .sort((a, b) => b.combined - a.combined)
     .slice(0, STAGE2_SIZE);
   state.progress = { stage: 2, label: 'Phân tích sâu nhóm dẫn đầu (kèm tin tức)', done: 0, total: shortlist.length };
@@ -196,7 +261,10 @@ async function run() {
       symbol: a.symbol, name: a.info.name, exchange: a.info.exchange,
       close: a.price.close, changePct: a.price.changePct, date: a.price.date,
       setups: c.setups, quick: c.quick, avgValue20: c.avgValue20,
-      liquidity: c.liquidity, quality: qualityCheck(a.fundamental.data, a.sector?.name || ''), combined: c.combined,
+      liquidity: c.liquidity, quality: withEarnings(qualityCheck(a.fundamental.data, c.sector?.name || ''), a.company?.earnings), sector: c.sector, combined: c.combined,
+      earnings: a.company?.earnings ? (({ quarters, ...rest }) => ({ ...rest, quarters: quarters.slice(-5).map(({ label, profit, profitYoY, revenueYoY }) => ({ label, profit, profitYoY, revenueYoY })) }))(a.company.earnings) : null,
+      valuation: a.company?.valuation ? { verdict: a.company.valuation.verdict, pePct: a.company.valuation.pe?.percentile ?? null, peMedian: a.company.valuation.pe?.median ?? null } : null,
+      upcomingEvents: (a.company?.events?.upcoming || []).slice(0, 3).map((x) => `${x.date} ${x.label}: ${x.note}`),
       total: a.total, scores: a.scores, recommendation: a.recommendation,
       indicators: a.technical.indicators, fundamentals: a.fundamental.data,
       foreign: a.foreign ? { net1: a.foreign.net1, net5: a.foreign.net5, net20: a.foreign.net20, buyDays5: a.foreign.buyDays5 } : null,
@@ -234,7 +302,9 @@ async function run() {
 
   return {
     date, createdAt: new Date().toISOString(), durationMs: Date.now() - started,
-    criteria: screenCriteria(), quality: QUALITY_RULES, liquidityRule: LIQUIDITY_RULES, funnel,
+    criteria: screenCriteria(), quality: QUALITY_RULES, liquidityRule: LIQUIDITY_RULES, sectorRule: SECTOR_RULES, funnel,
+    hotSectors: (flows?.sectors || []).map((s, k) => ({ name: s.name, rank: k + 1, net: s.net })).filter((s) => s.net > 0 || s.rank <= SECTOR_RULES.top),
+    sectorPicks: sectorPicks(scanned, flows, new Set(final.map((c) => c.symbol)), trendOk),
     universe: uni.length, scanned: scanned.length, shortlisted: shortlist.length,
     market, marketFlow, setupCounts, candidates: final, ai,
   };

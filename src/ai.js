@@ -11,6 +11,14 @@ export const MARKET_FACTORS = {
   NGANH: 'Dòng tiền ngành', TIN_TUC: 'Tin tức & sự kiện', CO_BAN: 'Định giá & cơ bản',
 };
 
+export const FLOW_PHASES = {
+  GOM: 'ĐANG ĐƯỢC GOM', GOM_YEU: 'CÓ DẤU HIỆU GOM', GIANG_CO: 'GIẰNG CO', XA_YEU: 'CÓ DẤU HIỆU XẢ', XA: 'ĐANG BỊ XẢ',
+};
+const READ_CODES = ['GOM', 'TRUNG_TINH', 'XA'];
+export const SCENARIOS = { TANG: 'Tăng', CO_SO: 'Cơ sở', GIAM: 'Giảm' };
+export const EARNINGS_VIEWS = { TANG_TOC: 'Lợi nhuận tăng tốc', ON_DINH: 'Tăng trưởng ổn định', CHAM_LAI: 'Tăng trưởng chậm lại', SUY_GIAM: 'Lợi nhuận suy giảm', CHUA_RO: 'Chưa rõ' };
+export const VALUE_VIEWS = { RE: 'Rẻ', HOP_LY: 'Hợp lý', DAT: 'Đắt', CHUA_RO: 'Chưa rõ' };
+
 export const DECISIONS = {
   MUA: 'MUA',
   MUA_THAM_DO: 'MUA THĂM DÒ',
@@ -57,6 +65,74 @@ const SCHEMA = {
     catalysts: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Sự kiện có thể làm giá thay đổi mạnh sắp tới' },
     watchItems: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Tín hiệu cần theo dõi để đổi quyết định' },
     ruleScoreComment: { type: 'STRING', description: 'Đồng ý hay không với điểm theo quy tắc của hệ thống và vì sao' },
+    flowAnalysis: {
+      type: 'OBJECT',
+      description: 'PHẦN ƯU TIÊN: phe mua / phe bán trong 7–10 phiên gần nhất — cổ phiếu đang được gom hay bị xả',
+      properties: {
+        sessionReads: {
+          type: 'ARRAY',
+          description: 'Đọc TỪNG phiên trong bảng 10 phiên, theo thứ tự ngày',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              date: { type: 'STRING', description: 'YYYY-MM-DD' },
+              read: { type: 'STRING', enum: READ_CODES },
+              note: { type: 'STRING', description: 'Tối đa 15 từ, có số liệu (KL, vị trí đóng cửa, khối ngoại, tự doanh, chủ động)' },
+            },
+            required: ['date', 'read', 'note'],
+          },
+        },
+        phase: { type: 'STRING', enum: Object.keys(FLOW_PHASES), description: 'Kết luận cả giai đoạn' },
+        strength: { type: 'INTEGER', description: 'Mức rõ ràng của kết luận 0-100' },
+        whoBuys: { type: 'STRING', description: 'Ai đang mua mạnh (khối ngoại / tự doanh / lệnh lớn / nhỏ lẻ), có số liệu' },
+        whoSells: { type: 'STRING', description: 'Ai đang bán mạnh, có số liệu' },
+        evidence: { type: 'ARRAY', items: { type: 'STRING' }, description: '3-5 bằng chứng quan trọng nhất, mỗi ý có ngày và số liệu' },
+        keySessions: { type: 'STRING', description: 'Phiên then chốt (đột biến KL, phiên phân phối/hấp thụ) và ý nghĩa' },
+        advice: { type: 'STRING', description: 'Lời khuyên cụ thể theo kết luận gom/xả: nên làm gì, ở vùng giá nào, chờ tín hiệu gì' },
+        adviceHolders: { type: 'STRING', description: 'Lời khuyên cho người đang nắm giữ dựa trên gom/xả' },
+        confirmSignal: { type: 'STRING', description: 'Tín hiệu khối lượng nào sẽ xác nhận hoặc phủ định kết luận trong các phiên tới' },
+      },
+      required: ['sessionReads', 'phase', 'strength', 'whoBuys', 'whoSells', 'evidence', 'keySessions', 'advice', 'adviceHolders', 'confirmSignal'],
+      propertyOrdering: ['sessionReads', 'whoBuys', 'whoSells', 'evidence', 'keySessions', 'phase', 'strength', 'advice', 'adviceHolders', 'confirmSignal'],
+    },
+    forecast: {
+      type: 'OBJECT',
+      description: 'Dự báo giá 5 / 10 / 20 phiên tới theo 3 kịch bản (nghìn đồng), neo theo dải thống kê được cung cấp',
+      properties: {
+        scenarios: {
+          type: 'ARRAY',
+          description: 'ĐÚNG 3 kịch bản TANG, CO_SO, GIAM; tổng xác suất = 100',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              name: { type: 'STRING', enum: Object.keys(SCENARIOS) },
+              probability: { type: 'INTEGER', description: 'Xác suất % (0-100)' },
+              p5: { type: 'NUMBER', description: 'Giá sau 5 phiên' },
+              p10: { type: 'NUMBER', description: 'Giá sau 10 phiên' },
+              p20: { type: 'NUMBER', description: 'Giá sau 20 phiên' },
+              trigger: { type: 'STRING', description: 'Điều kiện xảy ra kịch bản (khối lượng, mốc giá), tối đa 20 từ' },
+            },
+            required: ['name', 'probability', 'p5', 'p10', 'p20', 'trigger'],
+          },
+        },
+        rationale: { type: 'STRING', description: '1-2 câu: vì sao chọn xác suất như vậy (gom/xả, xu hướng, thị trường)' },
+      },
+      required: ['scenarios', 'rationale'],
+    },
+    businessView: {
+      type: 'OBJECT',
+      description: 'Nhận định doanh nghiệp từ KQKD theo quý, định giá, sự kiện, cổ đông, khuyến nghị CTCK',
+      properties: {
+        earnings: { type: 'STRING', enum: Object.keys(EARNINGS_VIEWS), description: 'Xu hướng lợi nhuận theo quý' },
+        earningsNote: { type: 'STRING', description: '1-2 câu có số liệu: tăng trưởng quý gần nhất, tăng tốc/chậm lại, biên lợi nhuận, chất lượng (dòng tiền)' },
+        valuation: { type: 'STRING', enum: Object.keys(VALUE_VIEWS), description: 'Định giá so với lịch sử 5 năm và ngành' },
+        valuationNote: { type: 'STRING', description: '1 câu có số liệu P/E, P/B so với trung vị lịch sử và ngành' },
+        eventImpact: { type: 'STRING', description: 'Sự kiện sắp tới / gần đây ảnh hưởng giá thế nào (chốt quyền, pha loãng, ĐHCĐ, báo cáo quý tới); "Không có" nếu không có' },
+        nextCatalyst: { type: 'STRING', description: 'Mốc sắp tới đáng chú ý nhất (vd báo cáo Q3 trước ngày X) và kỳ vọng' },
+      },
+      required: ['earnings', 'earningsNote', 'valuation', 'valuationNote', 'eventImpact', 'nextCatalyst'],
+      propertyOrdering: ['earningsNote', 'earnings', 'valuationNote', 'valuation', 'eventImpact', 'nextCatalyst'],
+    },
     marketChecks: {
       type: 'ARRAY',
       description: 'Đánh giá ĐỦ 6 yếu tố, mỗi yếu tố 1 dòng có số liệu',
@@ -81,16 +157,41 @@ const SCHEMA = {
     },
     dataGaps: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Dữ liệu còn thiếu hoặc đáng ngờ' },
   },
-  required: ['decision', 'headline', 'marketFlowView', 'confidence', 'horizon', 'summary', 'forNewBuyers', 'forHolders',
+  required: ['flowAnalysis', 'businessView', 'forecast', 'decision', 'headline', 'marketFlowView', 'confidence', 'horizon', 'summary', 'forNewBuyers', 'forHolders',
     'stopLoss', 'targets', 'positionSizing', 'bullCase', 'bearCase', 'newsInsights', 'catalysts', 'watchItems',
     'ruleScoreComment', 'dataGaps', 'marketChecks', 'planReview'],
-  propertyOrdering: ['marketChecks', 'summary', 'bullCase', 'bearCase', 'newsInsights', 'marketFlowView', 'catalysts', 'ruleScoreComment', 'planReview',
+  propertyOrdering: ['flowAnalysis', 'businessView', 'marketChecks', 'forecast', 'summary', 'bullCase', 'bearCase', 'newsInsights', 'marketFlowView', 'catalysts', 'ruleScoreComment', 'planReview',
     'decision', 'headline', 'confidence', 'horizon', 'forNewBuyers', 'forHolders', 'entryZone', 'stopLoss', 'targets',
     'positionSizing', 'watchItems', 'dataGaps'],
 };
 
 const SYSTEM = `Bạn là chuyên viên phân tích chứng khoán Việt Nam giàu kinh nghiệm, kỷ luật và thận trọng.
 Nhiệm vụ: dựa HOÀN TOÀN vào dữ liệu được cung cấp, đưa ra quyết định giao dịch cho một mã cổ phiếu.
+ƯU TIÊN SỐ 1: phân tích phe mua / phe bán trong 7–10 phiên gần nhất (bảng "PHE MUA / PHE BÁN") để kết luận cổ phiếu
+đang được GOM (tích lũy) hay bị XẢ (phân phối), ai đang mua / bán, rồi mới xét đến các chỉ báo dài hạn.
+Cách đọc từng phiên (khối lượng là chính, giá là để xác nhận):
+- Giá tăng + KL cao hơn TB20 + đóng cửa gần đỉnh (vị trí đóng cửa > +0,3) = bên mua chủ động thắng → gom.
+- Giá giảm + KL cao + đóng cửa gần đáy (< −0,3) = bị xả. KL đột biến ở vùng đỉnh mà đóng cửa thấp / râu trên dài = phân phối.
+- Đi ngang hoặc giảm nhẹ nhưng KL lớn và đóng cửa cao = có lực hấp thụ (gom âm thầm). Giảm với KL rất thấp = cạn cung.
+- Tăng với KL thấp dần = cầu yếu, dễ đảo chiều. Khối ngoại / tự doanh mua hoặc bán ròng liên tục nhiều phiên là tín hiệu mạnh.
+- Mua/bán chủ động và lệnh lớn (≥ 500 triệu/lệnh) cho biết phe nào đang chủ động và tiền lớn đứng về phía nào.
+- Cột "Máy chấm" chỉ là gợi ý theo quy tắc đơn giản; bạn tự đọc lại từng phiên, được phép kết luận khác và nói vì sao.
+- Thiếu dữ liệu mua/bán chủ động ở các phiên cũ là bình thường (chỉ có từ khi tool bắt đầu lưu); ghi vào dataGaps.
+Lời khuyên (advice) phải gắn với kết luận gom/xả: đang gom + giá giữ hỗ trợ → mua chia lần ở vùng hỗ trợ;
+đang xả → không mua, người đang giữ hạ tỷ trọng khi hồi; giằng co → chờ phiên xác nhận (nêu rõ điều kiện KL và giá).
+Doanh nghiệp (businessView), xếp sau phe mua/bán về độ ưu tiên ngắn hạn nhưng quyết định chất lượng khoản đầu tư:
+- Lợi nhuận quý TĂNG TỐC (tăng trưởng so cùng kỳ quý sau cao hơn quý trước) là tín hiệu tốt đã được nghiên cứu nhiều;
+  lợi nhuận chậm lại / suy giảm 2 quý liên tiếp là cảnh báo dù giá đang tăng. Tăng trưởng đột biến 1 quý cần xem có bền không.
+- Dòng tiền kinh doanh / lợi nhuận 4 quý < 0,5 (doanh nghiệp thường) = lợi nhuận chất lượng thấp (chưa thu được tiền).
+- Định giá: so P/E, P/B với trung vị 5 năm của chính mã (phân vị thấp = rẻ so với lịch sử) và với trung vị ngành.
+  Rẻ do lợi nhuận đang suy giảm thì không phải cơ hội.
+- Sự kiện: ngày giao dịch không hưởng quyền cổ tức/cổ phiếu thưởng làm giá điều chỉnh kỹ thuật; phát hành thêm giá thấp
+  hơn thị giá gây pha loãng và áp lực bán; ĐHCĐ bất thường cần chú ý nội dung; cảnh báo/kiểm soát là rủi ro lớn.
+- Khuyến nghị CTCK chỉ là tham khảo bên ngoài: dùng % kỳ vọng tại ngày báo cáo và độ mới; giá mục tiêu chưa điều chỉnh chia tách.
+- Báo cáo quý tới sắp công bố: nêu kỳ vọng dựa trên xu hướng các quý gần nhất.
+Dự báo giá (forecast): dải thống kê cho biết biên độ dao động bình thường của mã (không có hướng). Bạn đặt hướng và xác suất
+cho 3 kịch bản dựa trên phe mua/bán, xu hướng và thị trường. Giá kịch bản nên nằm trong dải 5%–95% trừ khi có lý do rõ ràng;
+kịch bản tăng ≥ cơ sở ≥ giảm ở mọi mốc; tổng xác suất 100. Không chắc chắn thì để xác suất các kịch bản gần nhau.
 Nguyên tắc:
 - Chỉ dùng số liệu có trong dữ liệu; không bịa thêm số liệu, sự kiện hay tin tức. Thiếu dữ liệu thì ghi vào dataGaps.
 - Cân nhắc cả xu hướng kỹ thuật, định giá, chất lượng tăng trưởng, tin tức và bối cảnh VN-Index.
@@ -118,6 +219,73 @@ BAN_BOT (hạ tỷ trọng), BAN (bán toàn bộ).`;
 const n = (v, d = 2) => (v == null || !Number.isFinite(v) ? 'n/a' : Number(v.toFixed(d)));
 const p = (v) => (v == null ? 'n/a' : `${(v * 100).toFixed(1)}%`);
 
+const tỷ = (v) => (v == null ? 'n/a' : `${v >= 0 ? '+' : ''}${(v / 1e9).toFixed(1)} tỷ`);
+// Khối lượng theo nghìn cổ phiếu, không dùng dấu phân cách để AI không đọc nhầm (2513k = 2.513.000 cp)
+const kcp = (v) => (v == null ? 'n/a' : `${Math.round(v / 1000)}k`);
+
+const pc0 = (v) => (v == null ? 'n/a' : `${v >= 0 ? '+' : ''}${Math.round(v * 100)}%`);
+
+/** Hồ sơ doanh nghiệp: KQKD theo quý, định giá so với lịch sử / ngành, sự kiện, cổ đông, khuyến nghị CTCK. */
+function companySection(a) {
+  const c = a.company;
+  if (!c) return '';
+  const L = [];
+  const e = c.earnings;
+  if (e) {
+    L.push(`\n## Kết quả kinh doanh theo quý (${e.bank ? 'ngân hàng: doanh thu = tổng thu nhập hoạt động' : 'tỷ đồng'})`);
+    L.push('Quý | doanh thu (so cùng kỳ) | lợi nhuận sau thuế cty mẹ (so cùng kỳ) | biên LN gộp | biên LN ròng | dòng tiền KD');
+    for (const q of e.quarters.slice(-8)) {
+      L.push(`${q.label} | ${q.revenue != null ? Math.round(q.revenue / 1e9) : 'n/a'} (${pc0(q.revenueYoY)}) | ${q.profit != null ? Math.round(q.profit / 1e9) : 'n/a'} (${pc0(q.profitYoY)}) | ${q.grossMargin != null ? (q.grossMargin * 100).toFixed(1) + '%' : 'n/a'} | ${q.netMargin != null ? (q.netMargin * 100).toFixed(1) + '%' : 'n/a'} | ${q.cfo != null ? Math.round(q.cfo / 1e9) : 'n/a'}`);
+    }
+    L.push(`Máy tính: quý gần nhất ${e.latest} lợi nhuận ${pc0(e.profitYoY)} so cùng kỳ, thay đổi tốc độ ${e.accel != null ? (e.accel > 0 ? '+' : '') + Math.round(e.accel * 100) + ' điểm %' : 'n/a'} → ${e.trend}; `
+      + `${e.growthStreak ? `${e.growthStreak} quý liên tiếp tăng trưởng` : e.declineStreak ? `${e.declineStreak} quý liên tiếp suy giảm` : ''}; LN 4 quý ${pc0(e.profitTTMGrowth)}; `
+      + `ROE 4 quý ${e.roeTTM != null ? (e.roeTTM * 100).toFixed(1) + '%' : 'n/a'}; dòng tiền KD / LN 4 quý ${e.cfoToProfit ?? 'không áp dụng'}; `
+      + `báo cáo ${e.nextReport.quarter} dự kiến trước ${e.nextReport.dueBy}.`);
+  }
+  const v = c.valuation;
+  if (v) {
+    L.push('\n## Định giá so với lịch sử 5 năm và ngành');
+    const h = (x, name) => (x ? `${name} ${x.current} (trung vị 5 năm ${x.median}, thấp nhất ${x.min}, cao nhất ${x.max}, đắt hơn ${Math.round(x.percentile * 100)}% số ngày trong lịch sử)` : `${name} n/a`);
+    L.push(`${h(v.pe, 'P/E')}; ${h(v.pb, 'P/B')}`);
+    if (v.sector) L.push(`Trung vị ${v.sector.n} mã cùng ngành trong rổ: P/E ${v.sector.pe}, P/B ${v.sector.pb}, ROE ${v.sector.roe != null ? (v.sector.roe * 100).toFixed(1) + '%' : 'n/a'}`);
+  }
+  const ev = c.events;
+  if (ev && (ev.upcoming.length || ev.recent.length || ev.alerts.length)) {
+    L.push('\n## Sự kiện doanh nghiệp');
+    for (const x of ev.upcoming) L.push(`SẮP TỚI ${x.date}: ${x.label} — ${x.note}${x.dilutive ? ' (có thể pha loãng / điều chỉnh giá)' : ''}`);
+    for (const x of ev.recent.slice(0, 6)) L.push(`Đã diễn ra ${x.date}: ${x.label} — ${x.note}`);
+    for (const x of ev.alerts) L.push(`CẢNH BÁO ${x.date}: ${x.label} — ${x.note}`);
+  }
+  if (c.holders?.length) L.push(`\nCổ đông lớn (dữ liệu ${c.holders[0].date}): ${c.holders.slice(0, 5).map((x) => `${x.name} ${x.pct}%`).join('; ')}`);
+  if (c.brokers?.length) {
+    L.push('\n## Khuyến nghị công ty chứng khoán ≤ 12 tháng (giá chưa điều chỉnh chia tách, dùng % kỳ vọng)');
+    for (const b of c.brokers.slice(0, 6)) L.push(`${b.date} ${b.firm}: ${b.type}, giá lúc báo cáo ${b.reportPrice}, mục tiêu ${b.targetPrice} (${pc0(b.upside)}), cách đây ${b.ageDays} ngày`);
+  }
+  return L.join('\n');
+}
+
+/** Bảng phe mua / phe bán 7–10 phiên gần nhất (phần dữ liệu ưu tiên). */
+function flowSection(a) {
+  const f = a.orderFlow;
+  if (!f) return '';
+  const L = [`\n## ƯU TIÊN — PHE MUA / PHE BÁN ${f.n} PHIÊN GẦN NHẤT (${f.from} → ${f.to})`];
+  L.push('Cột: ngày | mở,cao,thấp,đóng | % giá | khối lượng (×TB20) | vị trí đóng cửa trong biên độ (−1 đáy … +1 đỉnh) | khối ngoại ròng | tự doanh ròng | mua chủ động/bán chủ động, lệnh lớn mua/bán | máy chấm');
+  const bars = new Map((a.recentBars || []).map((b) => [b.time, b]));
+  for (const d of f.sessions) {
+    const b = bars.get(d.date);
+    const act = d.active ? `CĐ mua ${kcp(d.active.buy)}/bán ${kcp(d.active.sell)} (${Math.round(d.active.buyRatio * 100)}% mua), lệnh lớn mua ${kcp(d.active.bigBuy)}/bán ${kcp(d.active.bigSell)}` : 'CĐ: chưa có';
+    L.push(`${d.date} | ${b ? `${b.open},${b.high},${b.low},${b.close}` : d.close} | ${d.chg > 0 ? '+' : ''}${d.chg}% | ${kcp(d.volume)} (×${d.volRatio}) | ${d.clv} | NN ${tỷ(d.foreignNet)} | TD ${tỷ(d.propNet)} | ${act} | ${d.read}${d.why.length ? ` (${d.why.join('; ')})` : ''}`);
+  }
+  L.push(`Tổng ${f.n} phiên: giá ${f.priceChg > 0 ? '+' : ''}${f.priceChg}%; KL phiên tăng / KL phiên giảm = ${f.upDownVolRatio ?? 'n/a'}; KL trung bình ×${f.volVs20} TB20; `
+    + `chỉ số tích lũy/phân phối (KL theo vị trí đóng cửa) ${f.adLine}; khối ngoại ${tỷ(f.foreignNet)}; tự doanh ${tỷ(f.propNet)}; `
+    + `máy chấm ${f.gomDays} phiên gom / ${f.xaDays} phiên xả, điểm ${f.score} → gợi ý ${f.phase}.`);
+  if (f.activeDays) L.push(`Mua/bán chủ động có dữ liệu ${f.activeDays} phiên: mua ${kcp(f.activeBuy)} / bán ${kcp(f.activeSell)}; lệnh lớn mua ${kcp(f.bigBuy)} / bán ${kcp(f.bigSell)}.`);
+  if (f.today && !f.sessions.some((d) => d.date === f.today.date)) {
+    L.push(`Phiên đang diễn ra ${f.today.date}: chủ động mua ${kcp(f.today.buy)} / bán ${kcp(f.today.sell)} (${Math.round((f.today.buyRatio ?? 0) * 100)}% mua), lệnh lớn mua ${kcp(f.today.bigBuy)} / bán ${kcp(f.today.bigSell)}.`);
+  }
+  return L.join('\n');
+}
+
 function buildPrompt(a) {
   const f = a.fundamental.data;
   const i = a.technical.indicators;
@@ -132,7 +300,14 @@ function buildPrompt(a) {
     lines.push(`Ngành của mã: ${a.sector.name}, dòng tiền ròng ước tính ${(a.sector.net / 1e9).toFixed(0)} tỷ trong ${a.sector.period} phiên, xếp ${a.sector.rank}/${a.sector.total} ngành (1 = hút tiền mạnh nhất).`);
   }
 
-  lines.push('\n## Chỉ báo kỹ thuật');
+  lines.push(flowSection(a));
+  lines.push(companySection(a));
+  if (a.cone?.length) {
+    lines.push('\n## Dải dao động thống kê các phiên tới (từ lợi suất ~2 năm của chính mã này, không có hướng)');
+    for (const c of a.cone) lines.push(`Sau ${c.h} phiên: 5% ${c.p05} | 25% ${c.p25} | trung vị ${c.p50} | 75% ${c.p75} | 95% ${c.p95}`);
+  }
+
+  lines.push('\n## Chỉ báo kỹ thuật (bối cảnh dài hạn, xếp sau phần phe mua / phe bán)');
   lines.push(`MA20 ${n(i.sma20)}, MA50 ${n(i.sma50)}, MA200 ${n(i.sma200)}; RSI14 ${n(i.rsi14, 1)}; MACD ${n(i.macd, 3)} / signal ${n(i.macdSignal, 3)} / hist ${n(i.macdHist, 3)}`);
   lines.push(`Bollinger ${n(i.bbLower)} - ${n(i.bbUpper)}; ATR14 ${n(i.atr14)}; KL phiên ${i.volume}, TB20 ${i.avgVolume20}`);
   lines.push(`Hiệu suất: 5 phiên ${i.return5d}%, 20 phiên ${i.return20d}%, 60 phiên ${i.return60d}%, 1 năm ${i.return250d}%`);
@@ -159,8 +334,10 @@ function buildPrompt(a) {
     lines.push(`Tổng 5 phiên ${(a.foreign.net5 / 1e9).toFixed(1)} tỷ, 20 phiên ${(a.foreign.net20 / 1e9).toFixed(1)} tỷ (${a.foreign.ratio20}% giá trị khớp lệnh)`);
   }
 
-  lines.push('\n## Giá 60 phiên gần nhất (ngày,mở,cao,thấp,đóng,khối lượng)');
-  for (const b of a.recentBars) lines.push(`${b.time},${b.open},${b.high},${b.low},${b.close},${b.volume}`);
+  if (!a.orderFlow) {
+    lines.push('\n## Giá 10 phiên gần nhất (ngày,mở,cao,thấp,đóng,khối lượng)');
+    for (const b of a.recentBars.slice(-10)) lines.push(`${b.time},${b.open},${b.high},${b.low},${b.close},${b.volume}`);
+  }
 
   if (f) {
     lines.push(`\n## Chỉ số tài chính (BCTC đến ${f.reportDate || 'n/a'})`);
@@ -212,9 +389,56 @@ function buildPrompt(a) {
   return lines.join('\n');
 }
 
+/** Văn bản tiếng Việt có dấu: ≥ 5% chữ cái mang dấu (tiếng Việt có dấu thường 20–40%). */
+export function hasDiacritics(text) {
+  const letters = String(text).match(/\p{L}/gu) || [];
+  if (letters.length < 30) return true; // quá ngắn để kết luận
+  const marked = letters.filter((ch) => /[^a-zA-Z]/.test(ch.normalize('NFD').replace(/[̀-ͯ]/g, '')) || ch.normalize('NFD').length > 1).length;
+  return marked / letters.length >= 0.05;
+}
+
 /** Giữ tên cũ cho các module đang dùng; tham số model bị bỏ qua vì lớp llm tự chọn nhà cung cấp. */
 export async function callWithRetry(prompt, _model, { system = SYSTEM, schema = SCHEMA, timeout = 180_000 } = {}) {
   return generateJson(prompt, { system, schema, timeout });
+}
+
+/** Làm sạch kịch bản: đủ 3 kịch bản, giá hợp lý, sắp tăng ≥ cơ sở ≥ giảm, xác suất chuẩn hóa về 100. */
+function sanitizeForecast(f, close) {
+  if (!f || !Array.isArray(f.scenarios)) return null;
+  const sane = (v) => (Number.isFinite(v) && v > close * 0.5 && v < close * 2 ? Math.round(v * 100) / 100 : null);
+  const byName = new Map();
+  for (const s of f.scenarios) {
+    if (!SCENARIOS[s?.name] || byName.has(s.name)) continue;
+    const p5 = sane(s.p5), p10 = sane(s.p10), p20 = sane(s.p20);
+    if (p5 == null || p10 == null || p20 == null) continue;
+    byName.set(s.name, { name: s.name, label: SCENARIOS[s.name], probability: Math.max(0, Number(s.probability) || 0), p5, p10, p20, trigger: String(s.trigger || '').trim() });
+  }
+  if (byName.size !== 3) return null;
+  const list = ['TANG', 'CO_SO', 'GIAM'].map((k) => byName.get(k));
+  // Bảo đảm thứ tự ở mọi mốc
+  for (const h of ['p5', 'p10', 'p20']) {
+    const v = list.map((s) => s[h]).sort((a, b) => b - a);
+    list.forEach((s, i) => { s[h] = v[i]; });
+  }
+  const tot = list.reduce((a, s) => a + s.probability, 0) || 3;
+  list.forEach((s) => { s.probability = tot ? Math.round((s.probability / tot) * 100) : 33; });
+  const expected = Object.fromEntries(['p5', 'p10', 'p20'].map((h) => [h, Math.round(list.reduce((a, s) => a + s[h] * s.probability, 0)) / 100]));
+  return { scenarios: list, expected, rationale: String(f.rationale || '').trim() };
+}
+
+function sanitizeFlow(f) {
+  if (!f || typeof f !== 'object' || !FLOW_PHASES[f.phase]) return null;
+  const str = (v) => String(v || '').trim();
+  return {
+    phase: f.phase, phaseLabel: FLOW_PHASES[f.phase],
+    strength: Math.max(0, Math.min(100, Math.round(f.strength ?? 0))),
+    whoBuys: str(f.whoBuys), whoSells: str(f.whoSells),
+    evidence: (Array.isArray(f.evidence) ? f.evidence : []).map(str).filter(Boolean),
+    keySessions: str(f.keySessions), advice: str(f.advice), adviceHolders: str(f.adviceHolders), confirmSignal: str(f.confirmSignal),
+    sessionReads: (Array.isArray(f.sessionReads) ? f.sessionReads : [])
+      .filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x?.date || '') && READ_CODES.includes(x.read))
+      .map((x) => ({ date: x.date, read: x.read, note: str(x.note) })),
+  };
 }
 
 // Kiểm tra lại số liệu Gemini trả về: loại bỏ mức giá vô lý so với giá hiện tại
@@ -245,6 +469,16 @@ function sanitize(r, close) {
     watchItems: arr(r.watchItems),
     ruleScoreComment: String(r.ruleScoreComment || ''),
     dataGaps: arr(r.dataGaps),
+    flowAnalysis: sanitizeFlow(r.flowAnalysis),
+    forecast: sanitizeForecast(r.forecast, close),
+    businessView: r.businessView && EARNINGS_VIEWS[r.businessView.earnings] ? {
+      earnings: r.businessView.earnings, earningsLabel: EARNINGS_VIEWS[r.businessView.earnings],
+      earningsNote: String(r.businessView.earningsNote || ''),
+      valuation: VALUE_VIEWS[r.businessView.valuation] ? r.businessView.valuation : 'CHUA_RO',
+      valuationLabel: VALUE_VIEWS[r.businessView.valuation] || VALUE_VIEWS.CHUA_RO,
+      valuationNote: String(r.businessView.valuationNote || ''),
+      eventImpact: String(r.businessView.eventImpact || ''), nextCatalyst: String(r.businessView.nextCatalyst || ''),
+    } : null,
     marketChecks: (Array.isArray(r.marketChecks) ? r.marketChecks : [])
       .filter((x) => MARKET_FACTORS[x?.factor] && ['TOT', 'TRUNG_TINH', 'XAU'].includes(x.status))
       .map((x) => ({ factor: x.factor, label: MARKET_FACTORS[x.factor], status: x.status, note: String(x.note || '') })),
@@ -267,7 +501,13 @@ export function aiAnalyze(analysis, { force = false } = {}) {
   const key = `ai:${analysis.symbol}:${analysis.price.date}:${analysis.price.close}`;
   const run = async () => {
     const started = Date.now();
-    const { json, usage, model } = await callWithRetry(buildPrompt(analysis), useModel);
+    const prompt = buildPrompt(analysis);
+    let { json, usage, model } = await callWithRetry(prompt, useModel);
+    // Model dự phòng đôi khi viết tiếng Việt không dấu: yêu cầu viết lại một lần
+    if (!hasDiacritics(`${json.summary || ''} ${json.headline || ''} ${json.forNewBuyers || ''}`)) {
+      const again = await callWithRetry(`${prompt}\n\nLƯU Ý: lần trước bạn viết tiếng Việt KHÔNG DẤU. Bắt buộc viết tiếng Việt CÓ DẤU đầy đủ trong mọi trường văn bản.`, useModel).catch(() => null);
+      if (again?.json && hasDiacritics(`${again.json.summary || ''} ${again.json.headline || ''}`)) ({ json, usage, model } = again);
+    }
     return {
       symbol: analysis.symbol,
       price: analysis.price.close,
@@ -326,7 +566,8 @@ Nguyên tắc:
 - Chỉ dùng dữ liệu được cung cấp, không bịa số liệu hay tin tức. Không hứa hẹn lợi nhuận.
 - Các mã đều đã qua lọc: điểm xếp hạng 4 yếu tố ≥ 70 và giá trên MA200; thanh khoản đều (giá trị khớp lệnh ≥ 5 tỷ
   ở ít nhất 16/20 phiên); doanh nghiệp "ngon" (có lãi, ROE ≥ 12%, lợi nhuận 4 quý không giảm, P/E ≤ 25, nợ vay/vốn chủ ≤ 1,5
-  trừ ngân hàng/chứng khoán/bảo hiểm). Nhiệm vụ của bạn là loại mã có rủi ro tin tức, chất lượng lợi nhuận đáng ngờ
+  trừ ngân hàng/chứng khoán/bảo hiểm); thuộc ngành đang được mua ròng 5 phiên hoặc top 5 ngành hút tiền.
+  Ưu tiên mã thuộc ngành dẫn dắt dòng tiền (hạng ngành cao, dòng tiền ròng lớn). Nhiệm vụ của bạn là loại mã có rủi ro tin tức, chất lượng lợi nhuận đáng ngờ
   (tăng trưởng đột biến một lần), định giá quá đắt so với tăng trưởng hoặc đang tăng quá nóng.
 - Ưu tiên mã có nhiều nhóm tín hiệu cùng chiều (xu hướng, động lượng, dòng tiền, khối ngoại, cơ bản, tin tức).
 - Thị trường chung xấu thì hạ mức quyết định (MUA → MUA_THAM_DO hoặc CHO_DIEM_MUA) và nói rõ.
@@ -347,6 +588,10 @@ function pickPrompt(cands, marketFlow, market) {
     const i = c.indicators, f = c.fundamentals || {};
     L.push(`\n## ${c.symbol} - ${c.name} (${c.exchange}) giá ${c.close} (${c.changePct}% hôm nay)`);
     L.push(`Điểm xếp hạng 4 yếu tố: ${c.ranking?.score ?? 'n/a'} (hạng ${c.ranking?.position ?? '?'}/${c.ranking?.universe ?? '?'}); điểm chất lượng doanh nghiệp ${c.quality?.score ?? 'n/a'}/100`);
+    if (c.earnings) L.push(`KQKD quý: ${c.earnings.quarters.map((q) => `${q.label} LN ${q.profitYoY != null ? Math.round(q.profitYoY * 100) + '%' : 'n/a'}`).join(', ')} → ${c.earnings.trend}; dòng tiền KD/LN ${c.earnings.cfoToProfit ?? 'không áp dụng'}; báo cáo ${c.earnings.nextReport?.quarter} trước ${c.earnings.nextReport?.dueBy}`);
+    if (c.valuation?.pePct != null) L.push(`P/E đắt hơn ${Math.round(c.valuation.pePct * 100)}% số ngày trong 5 năm (trung vị ${c.valuation.peMedian}) → ${c.valuation.verdict}`);
+    if (c.upcomingEvents?.length) L.push(`Sự kiện sắp tới: ${c.upcomingEvents.join('; ')}`);
+    if (c.sector?.name) L.push(`Ngành ${c.sector.name}: hạng ${c.sector.rank}/${c.sector.total} về dòng tiền 5 phiên, ròng ${(c.sector.net / 1e9).toFixed(0)} tỷ, khối ngoại ngành ${((c.sector.foreignNet ?? 0) / 1e9).toFixed(0)} tỷ`);
     if (c.liquidity) L.push(`Thanh khoản: TB 20 phiên ${(c.liquidity.avg / 1e9).toFixed(1)} tỷ, ${c.liquidity.okDays}/${c.liquidity.days} phiên ≥ 5 tỷ, phiên gần nhất ${(c.liquidity.last / 1e9).toFixed(1)} tỷ`);
     if (c.fundamentals?.debtToEquity != null) L.push(`Nợ vay/vốn chủ ${c.fundamentals.debtToEquity.toFixed(2)}; LN quý gần nhất so cùng kỳ ${c.fundamentals.profitGrowthQoQYoY != null ? (c.fundamentals.profitGrowthQoQYoY * 100).toFixed(0) + '%' : 'n/a'}`);
     L.push(`Setup: ${c.setups.map((s) => s.label).join(', ') || 'không'}; điểm kiểu cũ (chỉ tham khảo): tổng ${c.total}, kỹ thuật ${c.scores.technical}, cơ bản ${c.scores.fundamental ?? 'n/a'}, tin ${c.scores.news ?? 'n/a'}`);

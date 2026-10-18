@@ -44,7 +44,8 @@ Không tự tính giá trị nội tại DCF. Bắt buộc nêu các tín hiệu
 ${RULES}`;
 
 const JUDGE_SYSTEM = `Bạn là giám đốc đầu tư kiêm trưởng ban quản trị rủi ro, chủ tọa hội đồng đầu tư.
-Bạn nhận dữ liệu gốc, bản luận điểm phe MUA và phe BÁN. Nhiệm vụ:
+Bạn nhận dữ liệu gốc, bản luận điểm phe MUA và phe BÁN. Ưu tiên bằng chứng phe mua / phe bán 7–10 phiên gần nhất
+(cổ phiếu đang được gom hay bị xả) hơn các chỉ báo dài hạn. Nhiệm vụ:
 1. Kiểm tra từng luận điểm có đúng với dữ liệu gốc không; bác bỏ luận điểm sai hoặc không có số liệu.
 2. Cân nhắc bằng chứng lịch sử: danh mục theo điểm xếp hạng (top 8 trên MA200) và vị trí hiện tại của mã.
    Từng mã được chọn chỉ thắng VN-Index ~51% số lần, nên không coi điểm xếp hạng cao là bảo đảm.
@@ -239,6 +240,14 @@ function holdingSection(a) {
 /** Kết luận của Gemini (bước 1) để hội đồng đối chiếu. */
 function geminiSection(g) {
   const L = ['\n## Phân tích của Gemini (bước 1, cần đối chiếu)'];
+  const fa = g.flowAnalysis;
+  if (fa) {
+    L.push(`Phe mua / phe bán 10 phiên: ${fa.phaseLabel} (rõ ràng ${fa.strength}/100). Bên mua: ${fa.whoBuys}. Bên bán: ${fa.whoSells}.`);
+    for (const e of fa.evidence) L.push(`- ${e}`);
+    if (fa.advice) L.push(`Lời khuyên theo dòng tiền: ${fa.advice}`);
+  }
+  const bv = g.businessView;
+  if (bv) L.push(`Doanh nghiệp: ${bv.earningsLabel} — ${bv.earningsNote} Định giá ${bv.valuationLabel}: ${bv.valuationNote} Sự kiện: ${bv.eventImpact}`);
   L.push(`Quyết định: ${g.decisionLabel}, tin cậy ${g.confidence}%. ${g.headline}`);
   L.push(g.summary);
   for (const c of g.marketChecks || []) L.push(`- ${c.label}: ${{ TOT: 'TỐT', TRUNG_TINH: 'TRUNG TÍNH', XAU: 'XẤU' }[c.status]} — ${c.note}`);

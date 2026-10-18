@@ -7,6 +7,7 @@ import { analyzeSymbol, summarize } from './analyze.js';
 import { aiAnalyze, aiConfig } from './ai.js';
 import { recordPrediction } from './predictions.js';
 import { finalDecision } from './decision.js';
+import { recordForecast } from './forecast.js';
 
 const AI_DIRECTION = { MUA: 1, MUA_THAM_DO: 1, GIU: 0, DUNG_NGOAI: -1, BAN_BOT: -1, BAN: -1 };
 
@@ -81,6 +82,7 @@ export async function runAi(symbol, { force = false, analysis = null } = {}) {
   }
   state.ai[a.symbol] = result;
   await save();
+  recordForecast(a.symbol, { date: a.price.date, close: a.price.close, forecast: result.forecast }).catch(() => {});
   if (result.final) {
     const dir = { BUY: 1, ACCUMULATE: 1, HOLD: 0, AVOID: -1, SELL: -1 }[result.final.code];
     recordPrediction({ source: 'final', symbol: a.symbol, date: a.price.date, direction: dir, label: result.final.label, price: a.price.close, detail: result.final.relation });

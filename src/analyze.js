@@ -5,6 +5,9 @@ import { sma, rsi, macd, bollinger, atr, pctChange, stochastic, adx, mfi, obv, r
 import { rankSymbol } from './ranking.js';
 import { recordMany } from './predictions.js';
 import { getSectorFlows } from './sectors.js';
+import { getOrderFlow } from './orderflow.js';
+import { coneSummary } from './forecast.js';
+import { getCompanyProfile } from './company.js';
 import { buildBrief } from './brief.js';
 
 const RULE_DIRECTION = { BUY: 1, ACCUMULATE: 1, HOLD: 0, AVOID: -1, SELL: -1 };
@@ -449,6 +452,10 @@ export async function analyzeSymbol(symbol, { withChart = true } = {}) {
 
   const tech = technicalAnalysis(bars, isIndex ? null : market, { indexBars: indexRes?.bars, foreign });
   const ranking = isIndex ? null : await rankSymbol(symbol, bars).catch(() => null);
+  // Phe mua / phe bán 10 phiên gần nhất (khối lượng, khối ngoại, tự doanh, mua/bán chủ động)
+  const orderFlow = isIndex ? null : await getOrderFlow(symbol, bars, foreign).catch(() => null);
+  // Dải dao động thống kê 5/10/20 phiên tới (lịch sử ~3 năm) để AI neo dự báo kịch bản
+  const cone = isIndex ? null : await getPriceHistory(symbol, 1100).then((r) => coneSummary(r.bars)).catch(() => null);
   const fa = fund ? fundamentalAnalysis(fund) : { score: null, signals: [], data: null };
   const newsAgg = aggregateSentiment(newsItems);
   const newsSignals = [];
@@ -553,6 +560,8 @@ export async function analyzeSymbol(symbol, { withChart = true } = {}) {
     } : null,
     warnings,
     ranking,
+    orderFlow,
+    cone,
     recentBars: bars.slice(-60),
   };
 
@@ -571,6 +580,11 @@ export async function analyzeSymbol(symbol, { withChart = true } = {}) {
     result.sector = k >= 0 ? {
       name: flows.sectors[k].name, net: flows.sectors[k].net, rank: k + 1, total: flows.sectors.length, period: flows.period,
     } : null;
+    // Hồ sơ doanh nghiệp: KQKD 12 quý, định giá so với lịch sử và ngành, sự kiện, cổ đông lớn, khuyến nghị CTCK
+    result.company = await getCompanyProfile(symbol, {
+      peers: k >= 0 ? flows.sectors[k].stocks.map((x) => x.symbol) : [],
+      financial: /ngân hàng|chứng khoán|bảo hiểm|tài chính/i.test(result.sector?.name || ''),
+    }).catch(() => null);
     // Nạp khi cần để tránh vòng lặp import analyze → portfolio → backtest → analyze
     const { getHolding } = await import('./portfolio.js');
     result.holding = await getHolding(symbol, lastBar.close).catch(() => null);

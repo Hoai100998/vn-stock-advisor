@@ -9,6 +9,7 @@ import { cached } from './http.js';
 import { atr, adx, sma } from './indicators.js';
 import { recordMany } from './predictions.js';
 import { BANDS, DEFAULTS, LOT, priceLimits, tickSize, roundUp, roundDown, calcMetrics, maxDrawdown } from './backtest.js';
+import { getQuarterly } from './company.js';
 
 
 export const REGIMES = ['none', 'half', 'cash'];
@@ -65,21 +66,40 @@ function percentile(sorted, value) {
   return (lo + eq / 2) / sorted.length;
 }
 
+// Yếu tố thứ 5 (tùy chọn): tăng trưởng lợi nhuận sau thuế quý gần nhất ĐÃ CÔNG BỐ so với cùng kỳ
+export const EARN_FACTOR = { key: 'eg', label: 'Tăng trưởng LN quý', sign: 1 };
+export const EARN_LAG_DAYS = 45; // hạn công bố BCTC hợp nhất: quý chỉ được dùng sau ngày kết thúc quý + 45 ngày
+
+/**
+ * Hàm đọc tăng trưởng LN quý tại một ngày: quý mới nhất có ngày kết thúc + 45 ngày ≤ ngày đó (không nhìn trước tương lai).
+ * @param {{ date: string, profit: number|null }[]} quarters tăng dần
+ */
+export function earningsReader(quarters) {
+  const qs = (quarters || []).map((r) => ({ ...r, avail: new Date(Date.parse(r.date) + EARN_LAG_DAYS * 86400_000).toISOString().slice(0, 10) }));
+  return (date) => {
+    let last = null;
+    for (const r of qs) if (r.avail <= date) last = r;
+    if (!last || last.profit == null) return null;
+    const ly = qs.find((x) => x.date.slice(5) === last.date.slice(5) && +x.date.slice(0, 4) === +last.date.slice(0, 4) - 1);
+    return ly?.profit > 0 ? last.profit / ly.profit - 1 : null;
+  };
+}
+
 /** Phân phối từng yếu tố của rổ (mảng đã sắp xếp) để tính phân vị. */
-export function buildRef(factorsList) {
+export function buildRef(factorsList, factors = FACTORS) {
   const ref = {};
-  for (const { key } of FACTORS) {
+  for (const { key } of factors) {
     ref[key] = factorsList.map((f) => f?.[key]).filter((v) => v != null && Number.isFinite(v)).sort((x, y) => x - y);
   }
   return ref;
 }
 
 /** Điểm 0–100 và phân vị từng yếu tố của một mã so với rổ. */
-export function compositeScore(f, ref) {
+export function compositeScore(f, ref, factors = FACTORS) {
   if (!f) return null;
   const parts = {};
   const used = [];
-  for (const { key, sign } of FACTORS) {
+  for (const { key, sign } of factors) {
     const v = f[key];
     if (v == null || !Number.isFinite(v) || !ref[key]?.length) continue;
     const p = percentile(ref[key], v);
@@ -174,6 +194,7 @@ export async function rankSymbol(symbol, bars) {
 /**
  * @param {{ years?: number, top?: number, rebalance?: number, buffer?: number, trendFilter?: boolean, initialCash?: number, regime?: string }} opts
  *   buffer: giữ mã đang nắm khi còn trong top (buffer × N) mã trên MA200; 1 = luôn đổi về đúng top N.
+ *   earnings: true = thêm yếu tố tăng trưởng LN quý (dữ liệu tại thời điểm) và bỏ mã có LN quý gần nhất giảm so cùng kỳ.
  *   regime: lọc theo xu hướng VN-Index ở ngày tái cơ cấu — 'none' (luôn đầy vốn), 'half' (VN-Index dưới MA200
  *   thì chỉ giữ nửa số mã, phần còn lại để tiền mặt), 'cash' (VN-Index dưới MA200 thì bán hết, cầm tiền).
  */
@@ -184,17 +205,20 @@ export async function runRankPortfolio(opts = {}) {
   const buffer = Math.min(4, Math.max(1, Number(opts.buffer) || PORTFOLIO_RULE.buffer));
   const trendFilter = opts.trendFilter !== false && opts.trendFilter !== '0' && opts.trendFilter !== 'false';
   const regime = REGIMES.includes(opts.regime) ? opts.regime : DEFAULT_REGIME;
+  const earnings = opts.earnings === true || opts.earnings === '1' || opts.earnings === 'true';
+  const factors = earnings ? [...FACTORS, EARN_FACTOR] : FACTORS;
   const initialCash = Number(opts.initialCash) > 0 ? Number(opts.initialCash) : DEFAULTS.initialCash;
   const { brokerage, sellTax, slippage } = DEFAULTS;
   const days = Math.round((years + 1.3) * 365);
 
   const c = screenCriteria();
-  const key = `rank-pf:${years}:${top}:${rebalance}:${buffer}:${trendFilter}:${regime}:${initialCash}:${c.floors}:${c.minValue}`;
+  const key = `rank-pf:${years}:${top}:${rebalance}:${buffer}:${earnings}:${trendFilter}:${regime}:${initialCash}:${c.floors}:${c.minValue}`;
   return cached(key, 30 * MIN, async () => {
     const indexRes = await getPriceHistory('VNINDEX', days);
     const uni = await getScreenUniverse();
     const { minValue } = screenCriteria();
     const all = await poolMap(uni.map((u) => u.symbol), (s) => getPriceHistory(s, days));
+    const quarterly = earnings ? await poolMap(uni.map((u) => u.symbol), (s) => getQuarterly(s)) : [];
     const cal = indexRes.bars;
     const start = Math.max(1, cal.length - Math.round(years * 252));
     const idxMa = sma(cal.map((b) => b.close), 200);
@@ -204,7 +228,7 @@ export async function runRankPortfolio(opts = {}) {
     uni.forEach(({ symbol: s, exchange }, k) => {
       const bars = all[k]?.bars;
       if (!bars?.length) return;
-      data[s] = { bars, at: new Map(bars.map((b, i) => [b.time, i])), read: factorReader(bars), ex: BANDS[exchange] ? exchange : 'HOSE' };
+      data[s] = { bars, at: new Map(bars.map((b, i) => [b.time, i])), read: factorReader(bars), ex: BANDS[exchange] ? exchange : 'HOSE', earn: earnings ? earningsReader(quarterly[k]) : null };
     });
     const syms = Object.keys(data);
 
@@ -274,10 +298,16 @@ export async function runRankPortfolio(opts = {}) {
           // Chỉ chọn mã đạt ngưỡng thanh khoản TẠI THỜI ĐIỂM đó (giảm thiên lệch nhìn từ hiện tại)
           if (avgTradedValue(data[s].bars, 20, i) < minValue) continue;
           const f = data[s].read(i);
-          if (f) snap.push({ s, f });
+          if (!f) continue;
+          if (earnings) {
+            const eg = data[s].earn(date);
+            if (eg != null && eg < 0) continue; // LN quý gần nhất đã công bố giảm so cùng kỳ: bỏ
+            f.eg = eg;
+          }
+          snap.push({ s, f });
         }
-        const ref = buildRef(snap.map((x) => x.f));
-        const scored = snap.map((x) => ({ ...x, score: compositeScore(x.f, ref)?.score })).filter((x) => x.score != null)
+        const ref = buildRef(snap.map((x) => x.f), factors);
+        const scored = snap.map((x) => ({ ...x, score: compositeScore(x.f, ref, factors)?.score })).filter((x) => x.score != null)
           .filter((x) => !trendFilter || x.f.aboveMa200 !== false)
           .sort((a, b) => b.score - a.score);
         const slots = regimeSlots(regime, idxBear(t), top);
@@ -322,7 +352,7 @@ export async function runRankPortfolio(opts = {}) {
     const out = (m) => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, typeof v === 'number' ? (Number.isFinite(v) ? round(v, 4) : null) : v]));
     return {
       regime: { mode: regime, bearPeriods: regimeLog.filter((x) => x.bear).length, periods: regimeLog.length, now: idxBear(cal.length - 1) ? 'bear' : 'bull' },
-      config: { years, top, rebalance, buffer, trendFilter, regime, initialCash, brokerage, sellTax, slippage, universe: syms.length, criteria: c },
+      config: { years, top, rebalance, buffer, earnings, trendFilter, regime, initialCash, brokerage, sellTax, slippage, universe: syms.length, criteria: c },
       period: { from: equity[0].time, to: equity.at(-1).time, bars: equity.length },
       metrics: out(metrics),
       equalWeight: { totalReturn: round(ew.at(-1) - 1, 4), maxDrawdown: round(maxDrawdown(ew, 1), 4) },

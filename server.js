@@ -17,6 +17,8 @@ import { evaluatePredictions } from './src/predictions.js';
 import { startHistorySchedule, listSnapshots } from './src/history.js';
 import { getSectorFlows } from './src/sectors.js';
 import { getChartSeries } from './src/chartdata.js';
+import { startFlowCapture } from './src/orderflow.js';
+import { getForecast } from './src/forecast.js';
 import {
   getWatchlist, addToWatchlist, removeFromWatchlist, scanWatchlist,
   getAlerts, markAlertsRead, startMonitor, runAi, getAiResult, triggerTestAlert,
@@ -56,6 +58,13 @@ const routes = [
     send(res, 200, await analyzeSymbol(sym));
   }],
   ['GET', /^\/api\/market$/, async (req, res) => send(res, 200, await getMarketOverview())],
+  // Quá khứ → tương lai: dải giá thống kê, kịch bản AI, kiểm chứng: /api/forecast/FPT?h=5|10|20|60
+  ['GET', /^\/api\/forecast\/([^/]+)$/, async (req, res, [sym]) => {
+    if (!SYMBOL_RE.test(sym)) return send(res, 400, { error: 'Mã chứng khoán không hợp lệ' });
+    const s = sym.toUpperCase();
+    const h = new URL(req.url, 'http://localhost').searchParams.get('h');
+    send(res, 200, await getForecast(s, { horizon: h, ai: await getAiResult(s) }));
+  }],
   // Biểu đồ theo khung: /api/chart/FPT?tf=D|W|M (nến ngày / tuần / tháng kèm MA20/50/200 của khung đó)
   ['GET', /^\/api\/chart\/([^/]+)$/, async (req, res, [sym]) => {
     if (!SYMBOL_RE.test(sym)) return send(res, 400, { error: 'Mã chứng khoán không hợp lệ' });
@@ -112,7 +121,7 @@ const routes = [
   }],
   ['GET', /^\/api\/rank\/backtest$/, async (req, res) => {
     const q = Object.fromEntries(new URL(req.url, 'http://localhost').searchParams);
-    send(res, 200, await runRankPortfolio({ years: q.years, top: q.top, rebalance: q.rebalance, buffer: q.buffer, trendFilter: q.trend, regime: q.regime, initialCash: q.cash }));
+    send(res, 200, await runRankPortfolio({ years: q.years, top: q.top, rebalance: q.rebalance, buffer: q.buffer, earnings: q.earnings, trendFilter: q.trend, regime: q.regime, initialCash: q.cash }));
   }],
   ['GET', /^\/api\/predictions$/, async (req, res) => send(res, 200, await evaluatePredictions())],
   ['GET', /^\/api\/history$/, async (req, res) => send(res, 200, { dates: await listSnapshots() })],
@@ -203,4 +212,9 @@ server.listen(PORT, '127.0.0.1', () => {
   startHistorySchedule();
   // Quét cổ phiếu tiềm năng mỗi ngày giao dịch sau 15:10
   startScreenerSchedule();
+  // Lưu mua/bán chủ động cả phiên (sau 15:10) cho danh sách theo dõi, danh mục và cổ phiếu tiềm năng
+  startFlowCapture(async () => {
+    const [w, p, sc] = await Promise.all([getWatchlist().catch(() => []), getPortfolio().catch(() => null), getScreener().catch(() => null)]);
+    return [...w.map((x) => x.symbol), ...(p?.holdings || []).map((h) => h.symbol), ...(sc?.result?.candidates || []).map((c) => c.symbol)];
+  });
 });

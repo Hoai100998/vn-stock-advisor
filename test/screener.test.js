@@ -1,6 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { qualityCheck, liquidityCheck } from '../src/screener.js';
+import { qualityCheck, liquidityCheck, sectorCheck } from '../src/screener.js';
+
+test('Ngành: đạt khi đang được mua ròng hoặc thuộc top 5 ngành hút tiền', () => {
+  assert.equal(sectorCheck({ name: 'Thép', rank: 3, total: 27, net: 6.8e11 }).pass, true);
+  assert.equal(sectorCheck({ name: 'Dược', rank: 8, total: 27, net: 5.4e10 }).pass, true); // ngoài top 5 nhưng mua ròng
+  assert.equal(sectorCheck({ name: 'X', rank: 4, total: 27, net: -1e9 }).pass, true); // top 5 dù ròng âm
+  const out = sectorCheck({ name: 'Bất động sản', rank: 27, total: 27, net: -2.7e12 });
+  assert.equal(out.pass, false);
+  assert.match(out.label, /bị bán ròng -2700 tỷ/);
+  assert.equal(sectorCheck(null).pass, false);
+});
 
 const good = { epsTTM: 3000, roe: 0.2, profitGrowthTTM: 0.15, revenueGrowthTTM: 0.1, pe: 12, debtToEquity: 0.5 };
 

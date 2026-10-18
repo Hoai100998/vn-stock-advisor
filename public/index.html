@@ -357,12 +357,15 @@
           <p class="muted small pk-method">
             Cách chọn: quét mọi mã <b>sàn HOSE</b> → (1) <b>thanh khoản đều ≥ 5 tỷ/ngày</b>: trung bình 20 phiên ≥ 5 tỷ và ít nhất 16/20 phiên đạt 5 tỷ →
             (2) <b>cổ ngon</b>: đang có lãi, ROE ≥ 12%, lợi nhuận 4 quý không giảm, P/E ≤ 25, nợ vay/vốn chủ ≤ 1,5 (trừ ngân hàng, chứng khoán, bảo hiểm) →
-            (3) <b>xu hướng mạnh</b>: điểm xếp hạng 4 yếu tố ≥ 70 và giá trên MA200 → xếp theo nửa điểm xu hướng + nửa điểm chất lượng →
+            (3) <b>ngành đang được mua</b>: ngành của mã có dòng tiền ròng 5 phiên dương hoặc thuộc top 5 ngành hút tiền →
+            (4) <b>xu hướng mạnh</b>: điểm xếp hạng 4 yếu tố ≥ 70 và giá trên MA200 → xếp theo nửa điểm xu hướng + nửa điểm chất lượng →
             phân tích sâu kèm tin tức, loại mã có tin rủi ro → Gemini đánh giá từng mã. Đây là sàng lọc theo dữ liệu, <b>không phải dự báo chắc chắn</b>;
             tiêu chí "cổ ngon" dùng số liệu BCTC hiện tại, chưa backtest được vì thiếu dữ liệu tài chính lịch sử.
           </p>
         </section>
+        <section id="pk-summary" class="card pk-summary" hidden></section>
         <div id="pk-list" class="pk-list"></div>
+        <section id="pk-sectors" class="card pk-sectors" hidden></section>
         <details id="pk-rejected" class="card pk-rejected" hidden>
           <summary>Đã loại sau khi Gemini đánh giá <span id="pk-rejected-count"></span></summary>
           <div id="pk-rejected-list"></div>
@@ -433,6 +436,8 @@
             <label><span>Tái cơ cấu (phiên)</span><input name="rebalance" type="number" min="5" max="60" step="5" value="20"></label>
             <label title="Giữ mã đang nắm khi còn trong top (hệ số × N) thay vì đổi hẳn về top N. Đã thử: kết quả dao động mạnh theo cấu hình, chưa tốt hơn ổn định so với không đệm."><span>Giữ mã đang thắng</span>
               <select name="buffer"><option value="1" selected>Không (luôn đổi về top N)</option><option value="1.5">Còn trong top 1,5×N</option><option value="2">Còn trong top 2×N</option><option value="3">Còn trong top 3×N</option></select></label>
+            <label title="Thêm yếu tố thứ 5: tăng trưởng lợi nhuận quý gần nhất đã công bố (trễ 45 ngày sau cuối quý, không nhìn trước tương lai) và bỏ mã có lợi nhuận quý giảm. Đã thử: cải thiện kết quả 3 năm nhưng kém hơn ở 2 năm, chưa ổn định nên mặc định tắt."><span>Yếu tố KQKD quý</span>
+              <select name="earnings"><option value="0" selected>Không</option><option value="1">Có</option></select></label>
             <label><span>Lọc trên MA200</span><select name="trend"><option value="1" selected>Có</option><option value="0">Không</option></select></label>
             <label title="Khi VN-Index dưới MA200: giữ đủ mã / chỉ giữ nửa số mã / bán hết cầm tiền. Đã kiểm chứng: lọc thị trường làm giảm lợi nhuận mà không giảm sụt giảm, nên mặc định là Không."><span>Khi VN-Index yếu</span>
               <select name="regime"><option value="none" selected>Vẫn đầy vốn</option><option value="half">Giữ nửa số mã</option><option value="cash">Cầm tiền</option></select></label>
@@ -582,6 +587,7 @@
         <!-- Section 1: THẺ QUYẾT ĐỊNH MUA / BÁN (DECISION CARD) -->
         <div id="sec-decision" class="report-section active">
           <section class="card brief-card" id="brief-card" aria-label="Tóm tắt nhanh"></section>
+          <section class="card flow-card" id="flow-card" aria-label="Phe mua phe bán 10 phiên" hidden></section>
           <section class="card decision-card" id="decision-card">
             <h3 class="dc-title">Căn cứ chi tiết <span class="muted small">· dòng tiền, khối ngoại, luận điểm mua và rủi ro</span></h3>
             <div class="dc-grid">
@@ -736,6 +742,25 @@
 
         <!-- Backtest chiến lược theo luật T+2, biên độ, lô 100, phí & thuế -->
         <div id="sec-backtest" class="report-section">
+          <section class="card" id="fc-card">
+            <div class="card-head">
+              <div>
+                <h3>🔮 Quá khứ → Tương lai: dự báo giá &amp; lời/lỗ</h3>
+                <div class="muted small">Giá thật trong quá khứ, các lần dự báo trước so với thực tế, và dự báo các phiên tới: dải dao động thống kê + 3 kịch bản của AI. Lời/lỗ tính theo vốn của bạn, đã trừ phí và thuế.</div>
+              </div>
+              <div class="fc-controls">
+                <div class="seg" id="fc-h" role="group" aria-label="Số phiên dự báo">
+                  <button type="button" data-h="5">5 phiên</button>
+                  <button type="button" data-h="10">10 phiên</button>
+                  <button type="button" data-h="20" class="on">20 phiên</button>
+                  <button type="button" data-h="60">60 phiên</button>
+                </div>
+                <label class="cap-input">Vốn <input id="fc-capital" type="number" min="1" step="10" inputmode="decimal"> triệu</label>
+                <button type="button" class="btn btn-glass btn-sm" id="fc-ai">✦ AI dự báo lại</button>
+              </div>
+            </div>
+            <div id="fc-body"></div>
+          </section>
           <section class="card" id="bt-card">
             <div class="card-head">
               <div>
@@ -768,6 +793,7 @@
             </div>
             <div id="r-fund" class="fund-grid"></div>
           </section>
+          <section class="card biz-card" id="biz-card" hidden></section>
         </div>
 
         <!-- Section 7: News & Sentiment -->
