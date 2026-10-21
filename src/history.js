@@ -4,7 +4,7 @@
 //     để sau vài tháng kiểm chứng được phần cơ bản/khối ngoại có dự báo được giá hay không.
 //  2. Ghi dự đoán cho MỌI mã trong rổ (không chỉ mã người dùng mở) theo cả điểm xếp hạng lẫn điểm cũ,
 //     để nhật ký dự đoán so sánh hai cách chấm một cách công bằng, không lệch mẫu.
-import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
+import { writeFile, mkdir, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getPriceHistory, getFundamentals, getForeignFlow } from './data.js';
@@ -78,10 +78,6 @@ export async function listSnapshots() {
   } catch {
     return [];
   }
-}
-
-export async function readSnapshot(date) {
-  return JSON.parse(await readFile(join(DIR, `${date}.json`), 'utf8'));
 }
 
 let running = null;

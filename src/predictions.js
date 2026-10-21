@@ -19,6 +19,8 @@ export const SOURCES = {
   ai: 'Gemini phân tích',
   committee: 'Hội đồng đầu tư',
   screener: 'Cổ phiếu tiềm năng (Gemini chọn)',
+  outlook: 'Xu hướng VN-Index tuần (AI)',
+  outlook_sector: 'Mã thuộc ngành AI dự báo triển vọng tuần',
 };
 
 let state = null;
@@ -123,6 +125,9 @@ export function evaluatePredictions() {
           buyCount: buys.length, sellCount: sells.length,
           buyAvgReturn: avg(buys, (x) => x.result[h].ret),
           sellAvgReturn: avg(sells, (x) => x.result[h].ret),
+          // Tín hiệu xếp hạng là tương đối (mua = hơn thị trường, tránh = kém thị trường) nên chấm chính theo VN-Index
+          buyAvgExcess: avg(buys.filter((x) => x.result[h].excess != null), (x) => x.result[h].excess),
+          sellAvgExcess: avg(sells.filter((x) => x.result[h].excess != null), (x) => x.result[h].excess),
         };
       });
       return {

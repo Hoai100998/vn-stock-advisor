@@ -1,6 +1,7 @@
 // Tóm tắt nhanh cho một mã: kết luận, việc nên làm, 4-5 lý do ngắn có số liệu, mức giá và rủi ro.
 // Dựng hoàn toàn từ dữ liệu đã tính (không cần AI) để đọc lướt là hiểu.
 import { priceLevels, tradeSteps } from './tradeplan.js';
+import { getTuning } from './tuning.js';
 
 const pct = (v, d = 0) => (v == null || !Number.isFinite(v) ? '–' : `${v > 0 ? '+' : ''}${(v * 100).toLocaleString('vi-VN', { minimumFractionDigits: d, maximumFractionDigits: d })}%`);
 const ty = (v) => (v == null ? '–' : `${v > 0 ? '+' : ''}${(v / 1e9).toLocaleString('vi-VN', { maximumFractionDigits: Math.abs(v) >= 1e11 ? 0 : 1 })} tỷ`);
@@ -147,7 +148,7 @@ export function buildBrief(a, sector = null, holding = null, bars = null) {
   // Bậc thang giá từ đỉnh/đáy thực tế + MA + ATR; nếu không có chuỗi giá thì dùng kế hoạch ATR đơn giản
   const p = a.plan;
   const L = bars?.length >= 60
-    ? priceLevels(bars, { atr: i.atr14, ma20: i.sma20, ma50: i.sma50, ma200: i.sma200 })
+    ? priceLevels(bars, { atr: i.atr14, ma20: i.sma20, ma50: i.sma50, ma200: i.sma200, minStopAtr: getTuning().minStopAtr })
     : p ? { r2: p.target, r1: p.resistance, close, s1: p.support, s2: null, stop: p.stopLoss, atr: i.atr14 || close * 0.02 } : null;
   const size = L ? positionSize(close, L.stop) : null;
   const steps = L ? tradeSteps(a.recommendation.code, L, {

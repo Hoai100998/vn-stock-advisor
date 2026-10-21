@@ -8,11 +8,17 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getPriceHistory } from './data.js';
 import { DEFAULTS } from './backtest.js';
+import { getTuning } from './tuning.js';
 
 const FILE = join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'forecasts.json');
 export const LOOKBACK = 500;      // số phiên quá khứ dùng để ước lượng
 export const QUANTILES = [0.05, 0.25, 0.5, 0.75, 0.95];
 export const AI_HORIZONS = [5, 10, 20];
+// Nới dải: lấy phân vị từ mẫu hữu hạn (các cửa sổ chồng nhau) luôn đánh giá thấp đuôi. Kiểm chứng ~130 mã × 2 năm:
+// không nới thì dải 90% chỉ chứa giá thật 86–88%, nới 1,12 lần thì về ~89–91% ở cả 5/10/20 phiên và cả hai nửa thời gian.
+// (Co giãn theo biến động 20/60 phiên gần nhất đã thử, không cải thiện.) Hệ số được selfreview.js tự hiệu chỉnh tiếp
+// theo tỷ lệ giá thật nằm trong dải của các dự báo đã lưu.
+const widen = () => getTuning().widen;
 // Phí mua + phí bán + thuế bán (đọc khi dùng: forecast.js nằm trong vòng import với backtest.js)
 const roundTrip = () => DEFAULTS.brokerage * 2 + DEFAULTS.sellTax;
 
@@ -24,13 +30,14 @@ function quantile(sorted, q) {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
 }
 
-/** Lợi suất log h phiên (đã bỏ trôi trung bình) trong cửa sổ [from, to] của chuỗi giá đóng cửa. */
+/** Lợi suất log h phiên (đã bỏ trôi trung bình, nới theo hệ số widen) trong cửa sổ [from, to] của chuỗi giá đóng cửa. */
 function hReturns(closes, h, from, to) {
   const out = [];
   for (let i = Math.max(0, from); i + h <= to; i++) out.push(Math.log(closes[i + h] / closes[i]));
   if (!out.length) return out;
   const mean = out.reduce((a, b) => a + b, 0) / out.length;
-  return out.map((x) => x - mean).sort((a, b) => a - b);
+  const k = widen();
+  return out.map((x) => (x - mean) * k).sort((a, b) => a - b);
 }
 
 /** Các phiên giao dịch tiếp theo (thứ 2 – thứ 6; chưa trừ ngày lễ). */
@@ -112,12 +119,16 @@ async function load() {
   return store;
 }
 
-/** Ghi dự báo kịch bản của AI (mỗi mã/phiên giữ bản mới nhất). */
-export async function recordForecast(symbol, { date, close, forecast, source = 'gemini' }) {
+/**
+ * Ghi dự báo kịch bản của AI (mỗi mã/phiên giữ bản mới nhất).
+ * `cone` (coneSummary lúc dự báo) được lưu thành dải 5–95% để chấm "giá thật nằm trong dải".
+ */
+export async function recordForecast(symbol, { date, close, forecast, cone = null, source = 'gemini' }) {
   if (!forecast?.scenarios?.length || !date) return;
   await load();
   store[symbol] ??= {};
-  store[symbol][date] = { date, close, source, at: new Date().toISOString(), scenarios: forecast.scenarios, expected: forecast.expected ?? null };
+  const band = cone?.length ? Object.fromEntries(cone.map((c) => [`p${c.h}`, [c.p05, c.p95]])) : null;
+  store[symbol][date] = { date, close, source, at: new Date().toISOString(), scenarios: forecast.scenarios, expected: forecast.expected ?? null, band };
   const dates = Object.keys(store[symbol]).sort();
   for (const d of dates.slice(0, Math.max(0, dates.length - 120))) delete store[symbol][d];
   await mkdir(dirname(FILE), { recursive: true });
@@ -134,8 +145,11 @@ export async function pastForecasts(symbol, bars) {
     const checks = AI_HORIZONS.map((h) => {
       const actual = i != null && i + h < bars.length ? bars[i + h].close : null;
       const target = base?.[`p${h}`] ?? null;
-      const lo = Math.min(...f.scenarios.map((s) => s[`p${h}`]).filter(Number.isFinite));
-      const hi = Math.max(...f.scenarios.map((s) => s[`p${h}`]).filter(Number.isFinite));
+      // Dải 5–95% lúc dự báo; bản ghi cũ chưa có dải thì dùng vùng giữa kịch bản giảm và tăng
+      const [lo, hi] = f.band?.[`p${h}`] || [
+        Math.min(...f.scenarios.map((s) => s[`p${h}`]).filter(Number.isFinite)),
+        Math.max(...f.scenarios.map((s) => s[`p${h}`]).filter(Number.isFinite)),
+      ];
       return {
         h, date: i != null && i + h < bars.length ? bars[i + h].time : null, actual, target,
         error: actual != null && target ? round((actual / target - 1) * 100, 1) : null,

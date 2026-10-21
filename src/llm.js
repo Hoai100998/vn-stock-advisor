@@ -217,8 +217,10 @@ const ERR_TEXT = {
  * Gửi prompt và nhận JSON theo schema. Thử lần lượt từng nhà cung cấp còn sẵn sàng.
  * @returns {Promise<{ json: object, usage: object|null, model: string, provider: string }>}
  */
-export async function generateJson(prompt, { system, schema, timeout = 180_000 } = {}) {
-  const all = providers();
+export async function generateJson(prompt, { system, schema, timeout = 180_000, lite = false } = {}) {
+  let all = providers();
+  // Việc nhẹ (vd lọc tin): dùng model lite trước để dành hạn mức model chính cho phân tích / thẩm định
+  if (lite) all = [...all.filter((p) => p.id.endsWith('-lite')), ...all.filter((p) => !p.id.endsWith('-lite'))];
   if (!all.length) throw new Error('Chưa cấu hình API key AI nào (GEMINI_API_KEY, MISTRAL_API_KEY, GROQ_API_KEY…). Xem hướng dẫn trong README.md');
   const ready = all.filter((p) => !(health.get(p.id)?.until > Date.now()));
   // Tất cả đang nghỉ: vẫn thử nhà cung cấp sắp hết thời gian nghỉ nhất

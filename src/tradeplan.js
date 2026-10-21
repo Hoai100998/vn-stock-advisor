@@ -26,7 +26,7 @@ function swings(bars, w, lows) {
  * Các mức giá then chốt.
  * @returns {{ r2, r1, close, s1, s2, stop, atr }}
  */
-export function priceLevels(bars, { atr, ma20, ma50, ma200 }) {
+export function priceLevels(bars, { atr, ma20, ma50, ma200, minStopAtr = 0 }) {
   const close = bars.at(-1).close;
   const a = atr || close * 0.02;
   const recent = bars.slice(-120);
@@ -42,6 +42,8 @@ export function priceLevels(bars, { atr, ma20, ma50, ma200 }) {
 
   // Cắt lỗ dưới hỗ trợ thấp nhất nửa ATR (tối đa 1 ATR dưới hỗ trợ 1), không để rủi ro quá 10%
   let stop = Math.max(s2 != null ? s2 - 0.5 * a : s1 - a, close * 0.9);
+  // Khoảng cách tối thiểu (tự hiệu chỉnh khi cắt lỗ bị quét quá thường xuyên rồi giá hồi lại)
+  if (minStopAtr > 0) stop = Math.max(Math.min(stop, close - minStopAtr * a), close * 0.9);
   if (s2 != null && stop >= s2) s2 = null;
   if (stop >= s1) s1 = Math.max(stop + a * 0.5, close - a * 0.5);
 

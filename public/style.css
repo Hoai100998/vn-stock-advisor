@@ -2585,3 +2585,635 @@ body.focus-mode .detail-only { display: none !important; }
 .bf-check[data-tone="up"] .bf-ic { color: var(--up-text); }
 .bf-check[data-tone="down"] .bf-ic { color: var(--down-text); }
 .bf-check[data-tone="ref"] .bf-ic { color: var(--muted); }
+
+/* ==========================================================================
+   DESKTOP DEFAULT FOR RESTRUCTURED TOPBAR & MOBILE ELEMENTS
+   ========================================================================== */
+.topbar-row {
+  display: contents;
+}
+.topbar-nav-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mobile-bottom-nav,
+.mobile-more-sheet,
+.mobile-back-bar {
+  display: none !important;
+}
+
+/* ==========================================================================
+   MOBILE & TABLET RESPONSIVE SYSTEM (<= 900px)
+   ========================================================================== */
+@media (max-width: 900px) {
+  /* Prevent horizontal scrolling */
+  html, body {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  /* Safe Area padding for modern bezel-less phones */
+  body {
+    padding-bottom: max(68px, env(safe-area-inset-bottom, 68px));
+  }
+
+  /* Topbar Mobile Layout: 2 Neat Rows */
+  .topbar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 12px;
+    position: sticky;
+    top: 0;
+    z-index: 60;
+  }
+
+  .topbar-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 8px;
+  }
+
+  .brand-group {
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .brand-icon {
+    width: 30px;
+    height: 30px;
+  }
+  .brand-icon svg {
+    width: 18px;
+    height: 18px;
+  }
+  .brand-title {
+    font-size: 13.5px;
+  }
+  .brand-badge {
+    display: none !important;
+  }
+
+  /* Market pill on mobile: compact ticker */
+  .market-pill {
+    margin: 0;
+    padding: 3px 8px;
+    font-size: 11px;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-radius: var(--radius-full);
+  }
+  .market-content {
+    font-size: 11px;
+  }
+
+  .top-actions {
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  #tools-dropdown {
+    display: none !important;
+  }
+  .btn-icon {
+    width: 32px;
+    height: 32px;
+  }
+  .btn-icon svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  /* Search row full width */
+  .search-container {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .search-form {
+    width: 100%;
+    max-width: 100%;
+    display: flex;
+    gap: 6px;
+  }
+  .search-wrap {
+    flex: 1;
+  }
+  .search-wrap input {
+    font-size: 13.5px;
+    padding: 7px 10px 7px 32px;
+    height: 36px;
+  }
+  .search-wrap input::placeholder {
+    font-size: 12px;
+  }
+  .search-icon {
+    left: 9px;
+    width: 14px;
+    height: 14px;
+  }
+  .search-clear {
+    right: 8px;
+    width: 20px;
+    height: 20px;
+  }
+  .kbd-hint {
+    display: none !important;
+  }
+  #search-btn {
+    padding: 7px 12px;
+    font-size: 12px;
+    height: 36px;
+  }
+
+  /* Hide raw feature buttons on topbar (moved to Bottom Nav & Sheet) */
+  .topbar-nav-btns {
+    display: none !important;
+  }
+
+  /* Test Ribbon: clean touch-scrolling */
+  .test-ribbon {
+    padding: 6px 12px;
+    gap: 8px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .test-ribbon-label {
+    font-size: 10px;
+  }
+  .ticker-chip {
+    padding: 3px 8px;
+    font-size: 11.5px;
+  }
+
+  /* Main Layout */
+  .layout {
+    display: block;
+    padding: 10px 10px 20px;
+    max-width: 100%;
+  }
+
+  /* Mobile Tab Controller Switching */
+  /* 1. When in 'analyze' tab: show #main, hide .sidebar */
+  body[data-mobile-tab="analyze"] .sidebar {
+    display: none !important;
+  }
+  body[data-mobile-tab="analyze"] #main {
+    display: flex !important;
+  }
+
+  /* 2. When in 'watchlist' tab: show .sidebar (watchlist only), hide #main */
+  body[data-mobile-tab="watchlist"] .sidebar {
+    display: flex !important;
+    width: 100%;
+    position: static;
+    box-shadow: none;
+    border-radius: var(--radius-md);
+    padding: 14px 12px;
+  }
+  body[data-mobile-tab="watchlist"] .sidebar .side-head,
+  body[data-mobile-tab="watchlist"] .sidebar .wl-tools,
+  body[data-mobile-tab="watchlist"] .sidebar #watchlist,
+  body[data-mobile-tab="watchlist"] .sidebar #quick-add-form {
+    display: flex !important;
+  }
+  body[data-mobile-tab="watchlist"] .sidebar #movers,
+  body[data-mobile-tab="watchlist"] .sidebar .sidebar-footer {
+    display: none !important;
+  }
+  body[data-mobile-tab="watchlist"] #main {
+    display: none !important;
+  }
+
+  /* 3. When in 'market' tab: show .sidebar (movers only), hide #main */
+  body[data-mobile-tab="market"] .sidebar {
+    display: flex !important;
+    width: 100%;
+    position: static;
+    box-shadow: none;
+    border-radius: var(--radius-md);
+    padding: 14px 12px;
+  }
+  body[data-mobile-tab="market"] .sidebar .side-head,
+  body[data-mobile-tab="market"] .sidebar .wl-tools,
+  body[data-mobile-tab="market"] .sidebar #watchlist,
+  body[data-mobile-tab="market"] .sidebar #quick-add-form,
+  body[data-mobile-tab="market"] .sidebar .sidebar-footer {
+    display: none !important;
+  }
+  body[data-mobile-tab="market"] .sidebar #movers {
+    display: block !important;
+  }
+  body[data-mobile-tab="market"] #main {
+    display: none !important;
+  }
+
+  /* 4. When in 'picks' tab: show #main with picks active */
+  body[data-mobile-tab="picks"] .sidebar {
+    display: none !important;
+  }
+  body[data-mobile-tab="picks"] #main {
+    display: flex !important;
+  }
+
+  /* Watchlist rows touch enhancements */
+  .watchlist {
+    max-height: none;
+    gap: 8px;
+  }
+  .wl-row {
+    padding: 12px;
+    grid-template-columns: 1fr auto 32px;
+  }
+  .wl-sym {
+    font-size: 15px;
+  }
+  .wl-price {
+    font-size: 14px;
+  }
+  .wl-del {
+    opacity: 1;
+    width: 28px;
+    height: 28px;
+    color: var(--muted);
+  }
+
+  /* Movers Tab & List */
+  .movers-tabs {
+    display: flex;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 4px;
+    padding-bottom: 4px;
+  }
+  .movers-tabs::-webkit-scrollbar { display: none; }
+  .movers-tabs .btn-filter {
+    flex: none;
+    white-space: nowrap;
+    padding: 6px 12px;
+    font-size: 11.5px;
+  }
+  .movers-list {
+    max-height: none;
+  }
+
+  /* Mobile Back Bar */
+  .mobile-back-bar {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 2px 8px;
+  }
+  .mobile-back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    border-radius: var(--radius-full);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .mobile-back-btn:active {
+    background: var(--surface-3);
+  }
+  .mobile-back-sym {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--accent);
+  }
+
+  /* Hero Card Mobile */
+  .hero-card {
+    padding: 14px;
+    gap: 12px;
+  }
+  .hero-left {
+    flex: 1 1 100%;
+  }
+  .symbol-title {
+    font-size: 26px;
+  }
+  .current-price {
+    font-size: 30px;
+  }
+  .hero-right {
+    max-width: 100%;
+    flex: 1 1 100%;
+  }
+  .recommendation-badge {
+    font-size: 15px;
+    padding: 6px 14px;
+    width: 100%;
+    justify-content: center;
+  }
+  .rec-score-row {
+    width: 100%;
+  }
+  .metric-pill {
+    flex: 1;
+    justify-content: space-between;
+    padding: 6px 10px;
+  }
+  .hero-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .hero-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Sticky Report Nav Tabs */
+  .report-nav {
+    top: 92px;
+    padding: 6px;
+    gap: 4px;
+    border-radius: var(--radius-md);
+    -webkit-overflow-scrolling: touch;
+  }
+  .nav-tab {
+    padding: 5px 10px;
+    font-size: 11.5px;
+  }
+
+  /* Chart Height on Mobile */
+  .chart-container,
+  #chart {
+    height: 320px !important;
+    min-height: 320px !important;
+  }
+
+  /* Grids to Single Column */
+  .grid2,
+  .dc-grid,
+  .scores,
+  .ai-actions,
+  .ai-lists,
+  .hub-cards-grid,
+  .hub-features,
+  .sc-summary,
+  .bt-grid,
+  .cm-debate,
+  .bf-body,
+  .bf-plays,
+  .flow-who,
+  .pk-sec-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  /* Backtest & Form controls on mobile */
+  .bt-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .bt-form label {
+    width: 100%;
+  }
+  .bt-form select,
+  .bt-form input {
+    width: 100%;
+  }
+  .bt-form button {
+    width: 100%;
+    padding: 10px;
+  }
+
+  /* All tables horizontally scrollable */
+  table {
+    font-size: 12px;
+  }
+  .sc-list,
+  .movers-list,
+  .watchlist,
+  .pk-summary,
+  .pk-sectors,
+  #rk-board,
+  #rk-bt,
+  #pd-body,
+  #pf-body,
+  #fc-body,
+  #bt-body,
+  #r-fund {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Drawer Mobile Full Width */
+  .drawer {
+    width: 100vw;
+    max-width: 100vw;
+    border-left: none;
+  }
+
+  /* Modal Mobile */
+  .modal-overlay {
+    padding: 10px;
+  }
+  .modal-card {
+    max-width: 100%;
+    width: 100%;
+    max-height: 90vh;
+  }
+
+  /* ==========================================================================
+     MOBILE BOTTOM NAVIGATION BAR
+     ========================================================================== */
+  .mobile-bottom-nav {
+    display: flex !important;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    height: 56px;
+    background: var(--surface-glass);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid var(--border-light);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
+    align-items: center;
+    justify-content: space-around;
+  }
+
+  .mb-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    height: 100%;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    position: relative;
+    transition: var(--transition);
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mb-nav-item svg,
+  .mb-nav-item span,
+  .mb-nav-badge {
+    pointer-events: none;
+  }
+  .mb-nav-item svg {
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), color 0.2s;
+  }
+  .mb-nav-item:active svg {
+    transform: scale(0.9);
+  }
+  .mb-nav-item.active {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .mb-nav-item.active svg {
+    transform: translateY(-2px);
+    stroke: var(--accent);
+  }
+
+  .mb-nav-badge {
+    position: absolute;
+    top: 4px;
+    right: calc(50% - 18px);
+    min-width: 16px;
+    height: 16px;
+    border-radius: var(--radius-full);
+    background: var(--accent);
+    color: #ffffff;
+    font-size: 9.5px;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    box-shadow: 0 0 8px var(--accent-glow);
+  }
+
+  /* ==========================================================================
+     MOBILE MORE MENU ACTION SHEET
+     ========================================================================== */
+  .mobile-more-sheet {
+    display: flex !important;
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    flex-direction: column;
+    justify-content: flex-end;
+  }
+  .mobile-more-sheet[hidden] {
+    display: none !important;
+  }
+
+  .sheet-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  .sheet-panel {
+    position: relative;
+    background: var(--surface-elevated);
+    border-top: 1px solid var(--border-light);
+    border-radius: 20px 20px 0 0;
+    padding: 12px 16px max(24px, env(safe-area-inset-bottom, 24px));
+    box-shadow: var(--shadow-lg);
+    animation: slideSheetUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .sheet-handle {
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border-light);
+    margin: 0 auto 12px;
+  }
+
+  .sheet-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .sheet-header h3 {
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .sheet-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .sheet-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 10px;
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--ink);
+    text-align: left;
+    cursor: pointer;
+    transition: var(--transition);
+  }
+  .sheet-item:active {
+    background: var(--surface-3);
+    border-color: var(--accent);
+    transform: scale(0.98);
+  }
+  .sheet-item-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+  .sheet-item-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .sheet-item-text b {
+    font-size: 12.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sheet-item-text span {
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.3;
+    margin-top: 2px;
+  }
+
+  @keyframes slideSheetUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+}
+

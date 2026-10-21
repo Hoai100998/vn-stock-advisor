@@ -43,6 +43,10 @@ export function getPriceHistory(symbol, days = 550) {
     for (const src of PRICE_SOURCES) {
       try {
         const bars = src.parse(await fetchJson(src.url(symbol, from, to)));
+        // Quanh giờ đóng cửa nguồn có thể trả nến tạm cho phiên chưa chốt (volume 0, high = low):
+        // bỏ đi để không phân tích/chụp bằng giá phiên trước.
+        const last = bars?.at(-1);
+        if (bars?.length > 1 && !last.volume && last.high === last.low) bars.pop();
         if (bars && bars.length) return { source: src.name, bars };
         errors.push(`${src.name}: không có dữ liệu`);
       } catch (err) {

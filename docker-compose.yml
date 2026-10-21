@@ -1,0 +1,34 @@
+# Database lưu toàn bộ dữ liệu hằng ngày của tool để phân tích, cải thiện.
+# Chạy:  docker compose up -d     (Docker Desktop tự bật lại khi khởi động máy nhờ restart: unless-stopped)
+# Xem dữ liệu trên web: http://localhost:8081  (Hệ thống: PostgreSQL, Máy chủ: db, tài khoản/mật khẩu trong .env)
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: vnstock-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-vnstock}
+      POSTGRES_USER: ${DB_USER:-vnstock}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Thiếu DB_PASSWORD trong .env}
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - vnstock-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-vnstock} -d ${DB_NAME:-vnstock}"]
+      interval: 10s
+      retries: 5
+
+  adminer:
+    image: adminer:4.8.1
+    container_name: vnstock-adminer
+    restart: unless-stopped
+    depends_on: [db]
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    ports:
+      - "127.0.0.1:8081:8080"
+
+volumes:
+  vnstock-pgdata:

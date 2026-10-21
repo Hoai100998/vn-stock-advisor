@@ -192,6 +192,8 @@ Doanh nghiệp (businessView), xếp sau phe mua/bán về độ ưu tiên ngắ
 Dự báo giá (forecast): dải thống kê cho biết biên độ dao động bình thường của mã (không có hướng). Bạn đặt hướng và xác suất
 cho 3 kịch bản dựa trên phe mua/bán, xu hướng và thị trường. Giá kịch bản nên nằm trong dải 5%–95% trừ khi có lý do rõ ràng;
 kịch bản tăng ≥ cơ sở ≥ giảm ở mọi mốc; tổng xác suất 100. Không chắc chắn thì để xác suất các kịch bản gần nhau.
+Kịch bản tăng là mức giá điển hình KHI giá đi lên nên phải ≥ mức 75% của dải, kịch bản giảm ≤ mức 25%; đừng đặt hai kịch bản
+này sát giá hiện tại. Thực tế đã kiểm chứng: biến động thật thường rộng hơn bạn nghĩ.
 Nguyên tắc:
 - Chỉ dùng số liệu có trong dữ liệu; không bịa thêm số liệu, sự kiện hay tin tức. Thiếu dữ liệu thì ghi vào dataGaps.
 - Cân nhắc cả xu hướng kỹ thuật, định giá, chất lượng tăng trưởng, tin tức và bối cảnh VN-Index.
@@ -352,12 +354,14 @@ function buildPrompt(a) {
     lines.push('\n## Tin theo nhóm sự kiện (số tin, điểm cảm xúc TB −100..100)');
     lines.push(a.news.categories.map((c) => `${c.label}: ${c.count} tin, ${c.sentiment}`).join('; '));
   }
-  lines.push(`\n## Tin tức ${a.news.count} tin gần đây (mới nhất trước; [nhãn máy chấm | nhóm] nguồn, ngày, giá phiên sau tin: tiêu đề)`);
+  const removed = a.news.aiFilter?.removed?.length || 0;
+  lines.push(`\n## Tin tức ${a.news.count} tin gần đây (mới nhất trước; [nhãn | nhóm] nguồn, ngày, giá phiên sau tin: tiêu đề; nhãn "AI:" = đã được AI lọc tin đọc và xác nhận liên quan, còn lại là nhãn từ khóa)${removed ? `. Đã bỏ ${removed} tin không nói về mã này.` : ''}`);
   for (const it of a.news.items.slice(0, 30)) {
     const date = it.publishedAt ? new Date(it.publishedAt).toISOString().slice(0, 10) : '?';
     const cats = it.categories?.length ? ` | ${it.categories.join(',')}` : '';
     const react = it.reaction ? `, giá ${it.reaction.pct > 0 ? '+' : ''}${it.reaction.pct}%` : '';
-    lines.push(`- [${it.label}${cats}] ${it.source}, ${date}${react}: ${it.title}${it.summary ? ` — ${it.summary.slice(0, 200)}` : ''}`);
+    const lbl = it.ai ? `AI:${it.label}${it.ai.risk ? ',RỦI RO' : ''}` : it.label;
+    lines.push(`- [${lbl}${cats}] ${it.source}, ${date}${react}: ${it.title}${it.summary ? ` — ${it.summary.slice(0, 200)}` : ''}`);
   }
 
   if (a.ranking) {
@@ -402,8 +406,12 @@ export async function callWithRetry(prompt, _model, { system = SYSTEM, schema = 
   return generateJson(prompt, { system, schema, timeout });
 }
 
-/** Làm sạch kịch bản: đủ 3 kịch bản, giá hợp lý, sắp tăng ≥ cơ sở ≥ giảm, xác suất chuẩn hóa về 100. */
-function sanitizeForecast(f, close) {
+/**
+ * Làm sạch kịch bản: đủ 3 kịch bản, giá hợp lý, sắp tăng ≥ cơ sở ≥ giảm, xác suất chuẩn hóa về 100.
+ * Có dải thống kê thì kịch bản tăng ít nhất bằng mức 75%, kịch bản giảm nhiều nhất bằng mức 25%: Gemini hay đặt
+ * hai kịch bản này quá sát giá hiện tại (16–19/10: 3/7 mã vượt khỏi vùng 5 phiên chỉ sau 2 phiên).
+ */
+export function sanitizeForecast(f, close, cone = null) {
   if (!f || !Array.isArray(f.scenarios)) return null;
   const sane = (v) => (Number.isFinite(v) && v > close * 0.5 && v < close * 2 ? Math.round(v * 100) / 100 : null);
   const byName = new Map();
@@ -419,6 +427,9 @@ function sanitizeForecast(f, close) {
   for (const h of ['p5', 'p10', 'p20']) {
     const v = list.map((s) => s[h]).sort((a, b) => b - a);
     list.forEach((s, i) => { s[h] = v[i]; });
+    const c = cone?.find((x) => `p${x.h}` === h);
+    if (c?.p75 != null) list[0][h] = Math.max(list[0][h], c.p75);
+    if (c?.p25 != null) list[2][h] = Math.min(list[2][h], c.p25);
   }
   const tot = list.reduce((a, s) => a + s.probability, 0) || 3;
   list.forEach((s) => { s.probability = tot ? Math.round((s.probability / tot) * 100) : 33; });
@@ -442,7 +453,7 @@ function sanitizeFlow(f) {
 }
 
 // Kiểm tra lại số liệu Gemini trả về: loại bỏ mức giá vô lý so với giá hiện tại
-function sanitize(r, close) {
+function sanitize(r, close, cone = null) {
   const sane = (v) => (Number.isFinite(v) && v > close * 0.5 && v < close * 2 ? v : null);
   const arr = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.trim()) : []);
   const stop = sane(r.stopLoss);
@@ -470,7 +481,7 @@ function sanitize(r, close) {
     ruleScoreComment: String(r.ruleScoreComment || ''),
     dataGaps: arr(r.dataGaps),
     flowAnalysis: sanitizeFlow(r.flowAnalysis),
-    forecast: sanitizeForecast(r.forecast, close),
+    forecast: sanitizeForecast(r.forecast, close, cone),
     businessView: r.businessView && EARNINGS_VIEWS[r.businessView.earnings] ? {
       earnings: r.businessView.earnings, earningsLabel: EARNINGS_VIEWS[r.businessView.earnings],
       earningsNote: String(r.businessView.earningsNote || ''),
@@ -516,7 +527,7 @@ export function aiAnalyze(analysis, { force = false } = {}) {
       createdAt: new Date().toISOString(),
       durationMs: Date.now() - started,
       tokens: usage?.totalTokenCount ?? null,
-      ...sanitize(json, analysis.price.close),
+      ...sanitize(json, analysis.price.close, analysis.cone),
     };
   };
   if (force) uncache(key);

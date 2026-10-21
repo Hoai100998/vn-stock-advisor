@@ -8,10 +8,16 @@
     "start": "node server.js",
     "scan": "node scan.js",
     "test": "node --test",
-    "ai-check": "node check-ai.js"
+    "ai-check": "node check-ai.js",
+    "telegram": "node telegram-setup.js",
+    "db-sync": "node db-sync.js",
+    "self-review": "node self-review.js"
   },
   "engines": {
     "node": ">=20"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "pg": "^8.23.1"
+  }
 }

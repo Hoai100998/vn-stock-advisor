@@ -241,6 +241,7 @@ $('movers-list')?.addEventListener('click', (e) => {
 async function loadWatchlist() {
   state.watchlist = await api('/api/watchlist').catch(() => []);
   $('wl-count').textContent = state.watchlist.length;
+  if ($('mb-wl-count')) $('mb-wl-count').textContent = state.watchlist.length;
   renderWatchlist();
 }
 
@@ -450,6 +451,8 @@ document.addEventListener('click', (e) => {
 
 async function analyze(symbol) {
   symbol = symbol.toUpperCase();
+  if (typeof setMobileTab === 'function') setMobileTab('analyze');
+  if ($('mobile-back-sym')) $('mobile-back-sym').textContent = symbol;
   searchInput.value = symbol;
   searchClearBtn.hidden = false;
 
@@ -1062,14 +1065,16 @@ const LABELS = { tich_cuc: 'Tích cực', tieu_cuc: 'Tiêu cực', trung_lap: 'T
 
 function renderNews(a) {
   const items = a.news.items.filter((n) => state.newsFilter === 'all' || n.label === state.newsFilter);
-  $('r-news-count').textContent = `(${a.news.count} tin · ${a.news.positive} tích cực · ${a.news.negative} tiêu cực)`;
+  const f = a.news.aiFilter;
+  $('r-news-count').textContent = `(${a.news.count} tin · ${a.news.positive} tích cực · ${a.news.negative} tiêu cực${f?.checked ? ` · AI đã lọc${f.removed.length ? `, bỏ ${f.removed.length} tin không liên quan` : ''}` : ''})`;
   $('r-news').innerHTML = items.length ? items.map((n) => `
     <li>
-      <span class="chip ${n.label}">${LABELS[n.label]}</span>
+      <span class="chip ${n.label}" title="${n.ai ? 'Nhãn do AI đọc tin' : 'Nhãn theo từ khóa (AI chưa đọc)'}">${LABELS[n.label]}${n.ai ? ' · AI' : ''}</span>
       <div>
         <a href="${esc(safeUrl(n.link))}" target="_blank" rel="noopener noreferrer">${esc(n.title)} ↗</a>
         <div class="meta">${esc(n.source)} · ${timeAgo(n.publishedAt)}</div>
-        ${n.keywords.length ? `<div class="kw">Từ khóa: ${n.keywords.map(esc).join(', ')}</div>` : ''}
+        ${n.ai?.reason ? `<div class="kw">AI: ${esc(n.ai.reason)}${n.ai.risk ? ' · ⚠ rủi ro nghiêm trọng' : ''}</div>`
+          : n.keywords.length ? `<div class="kw">Từ khóa: ${n.keywords.map(esc).join(', ')}</div>` : ''}
       </div>
     </li>
   `).join('') : '<li class="muted" style="padding:10px">Không có tin tức phù hợp trong bộ lọc này.</li>';
@@ -1510,7 +1515,7 @@ async function loadAlerts() {
   $('alerts-count').hidden = !unread;
   $('alerts-list').innerHTML = alerts.length ? alerts.map((a) => `
     <li class="${a.read ? '' : 'unread'}" data-sym="${esc(a.symbol)}">
-      <div style="font-size:13px"><b>${esc(a.symbol)}</b>: ${esc(a.message)}</div>
+      <div style="font-size:13px">${a.type === 'opportunity' ? '🎯 ' : ''}<b>${esc(a.symbol)}</b>: ${esc(a.message)}</div>
       <div class="meta">${new Date(a.time).toLocaleString('vi-VN')}</div>
     </li>
   `).join('') : '<li class="muted" style="padding:14px">Chưa có cảnh báo nào trong hệ thống.</li>';
@@ -1817,7 +1822,7 @@ function renderForecast(a, d) {
   const pastRows = [...d.past].reverse().slice(0, 12).map((f) => {
     const cells = f.checks.map((c) => c.actual == null
       ? `<td class="muted small">${c.target != null ? fmt(c.target) : '–'} · chờ</td>`
-      : `<td>${fmt(c.target)} → <b class="${dirClass(c.actual - f.close)}">${fmt(c.actual)}</b> ${c.directionOk ? '<span class="up">✓ hướng</span>' : '<span class="down">✕ hướng</span>'}${c.inRange ? ' · trong vùng' : ''}</td>`).join('');
+      : `<td>${fmt(c.target)} → <b class="${dirClass(c.actual - f.close)}">${fmt(c.actual)}</b> ${c.directionOk ? '<span class="up">✓ hướng</span>' : '<span class="down">✕ hướng</span>'}${c.inRange ? ' · trong dải' : ''}</td>`).join('');
     return `<tr><td>${f.date}</td><td>${fmt(f.close)}</td>${cells}</tr>`;
   }).join('');
 
@@ -1851,7 +1856,7 @@ function renderForecast(a, d) {
           Dải chỉ ước lượng <b>biên độ</b>, không dự báo hướng. Đường "dự báo cũ" trên biểu đồ là trung vị đã dự báo từ ${H} phiên trước để bạn so với giá thật.</p>
       </div>
       <div class="bt-block"><h4>📒 Dự báo của AI trước đây so với thực tế</h4>
-        ${matured.length ? `<p class="small">Đã chấm ${matured.length} mốc: <b>${pc(dirOk / matured.length)}</b> đúng hướng, <b>${pc(inRange / matured.length)}</b> giá thật nằm trong vùng 3 kịch bản.</p>` : '<p class="muted small">Chưa có dự báo AI nào đủ 5 phiên để chấm. Mỗi lần AI phân tích, dự báo được lưu lại và tự chấm khi đến mốc 5 / 10 / 20 phiên.</p>'}
+        ${matured.length ? `<p class="small">Đã chấm ${matured.length} mốc: <b>${pc(dirOk / matured.length)}</b> đúng hướng, <b>${pc(inRange / matured.length)}</b> giá thật nằm trong dải 5–95% lúc dự báo.</p>` : '<p class="muted small">Chưa có dự báo AI nào đủ 5 phiên để chấm. Mỗi lần AI phân tích, dự báo được lưu lại và tự chấm khi đến mốc 5 / 10 / 20 phiên.</p>'}
         ${pastRows ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Ngày dự báo</th><th>Giá lúc đó</th><th>5 phiên (cơ sở → thật)</th><th>10 phiên</th><th>20 phiên</th></tr></thead><tbody>${pastRows}</tbody></table></div>` : ''}
       </div>
     </div>`;
@@ -2362,19 +2367,25 @@ async function loadPredictions() {
     const p = await api('/api/predictions');
     const cell = (x) => {
       if (!x.evaluated) return '<td class="muted">chưa đủ phiên</td>';
-      const hit = x.hitRate * 100;
-      return `<td><b class="${hit >= 55 ? 'up' : hit < 45 ? 'down' : ''}">${fmt(hit, 0)}%</b> <span class="muted small">đúng / ${x.evaluated}</span>
-        ${x.beatIndexRate != null ? `<div class="muted small">thắng VNI ${fmt(x.beatIndexRate * 100, 0)}%${x.buyAvgReturn != null ? ` · mua TB ${pct(x.buyAvgReturn)}` : ''}</div>` : ''}</td>`;
+      if (x.beatIndexRate == null) return `<td>${fmt(x.hitRate * 100, 0)}% <span class="muted small">đúng hướng / ${x.evaluated}</span></td>`;
+      const beat = x.beatIndexRate * 100;
+      const ex = [x.buyAvgExcess != null ? `mua ${pct(x.buyAvgExcess)}` : '', x.sellAvgExcess != null ? `tránh ${pct(x.sellAvgExcess)}` : ''].filter(Boolean).join(' · ');
+      return `<td><b class="${beat >= 55 ? 'up' : beat < 45 ? 'down' : ''}">${fmt(beat, 0)}%</b> <span class="muted small">đúng so VNI / ${x.evaluated}</span>
+        <div class="muted small">${ex ? `${ex} so VNI · ` : ''}đúng hướng giá ${fmt(x.hitRate * 100, 0)}%</div></td>`;
     };
     const RES = (it) => {
       const h = [5, 10, 20].filter((k) => it.result?.[k]);
       if (!it.direction) return '<span class="muted">trung tính</span>';
       if (!h.length) return '<span class="muted">chờ</span>';
-      return h.map((k) => { const r = it.result[k]; return `<span class="${r.correct ? 'up' : 'down'}">${k}p ${r.correct ? '✓' : '✕'} ${pct(r.ret)}</span>`; }).join(' · ');
+      return h.map((k) => {
+        const r = it.result[k], ok = r.beatIndex ?? r.correct;
+        return `<span class="${ok ? 'up' : 'down'}" title="Giá ${pct(r.ret)}${r.excess != null ? `, so VN-Index ${pct(r.excess)}` : ''}">${k}p ${ok ? '✓' : '✕'} ${pct(r.excess ?? r.ret)}</span>`;
+      }).join(' · ');
     };
     $('pd-body').innerHTML = `
-      <p class="muted small" style="margin:0 0 10px">Đã ghi ${p.totalItems} dự đoán${p.firstDate ? ` từ ${p.firstDate}` : ''}. "Đúng" = dự đoán mua mà giá tăng, hoặc dự đoán tránh/bán mà giá giảm.
-        Tỷ lệ ngẫu nhiên ≈ 50%; cần ít nhất vài chục dự đoán đã chấm mới đáng tin.</p>
+      <p class="muted small" style="margin:0 0 10px">Đã ghi ${p.totalItems} dự đoán${p.firstDate ? ` từ ${p.firstDate}` : ''}. "Đúng so VNI" = mã khuyên mua tăng hơn VN-Index, hoặc mã khuyên tránh/bán kém VN-Index trong cùng khoảng
+        (khuyến nghị là so với thị trường: khi cả thị trường tăng mạnh, mã "tránh" vẫn có thể tăng nhưng tăng ít hơn).
+        "Đúng hướng giá" chấm theo giá tăng/giảm tuyệt đối. Tỷ lệ ngẫu nhiên ≈ 50%; cần ít nhất vài chục dự đoán đã chấm mới đáng tin.</p>
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nguồn dự đoán</th><th>Đã ghi</th><th>Đang chờ</th><th>Sau 5 phiên</th><th>Sau 10 phiên</th><th>Sau 20 phiên</th></tr></thead><tbody>
         ${p.summary.map((s) => `<tr><td style="font-family:inherit"><b>${esc(s.label)}</b></td><td>${s.total}</td><td>${s.pending}</td>${s.horizons.map(cell).join('')}</tr>`).join('')}
       </tbody></table></div>
@@ -2950,20 +2961,138 @@ loadMovers();
 
 api('/api/ai/status').catch(() => ({ enabled: false })).then((s) => {
   state.ai = s;
-  const initial = decodeURIComponent(location.hash.slice(1));
-  // Mở app chưa chọn mã: hiện danh sách cổ phiếu tiềm năng
-  if (initial === 'danh-muc') {
+  const initial = decodeURIComponent(location.hash.slice(1)).toLowerCase();
+  // Khởi động view theo hash hoặc mặc định
+  if (initial === 'theo-doi' || initial === 'watchlist') {
+    setMobileTab('watchlist');
+  } else if (initial === 'thi-truong' || initial === 'market') {
+    setMobileTab('market');
+  } else if (initial === 'tiem-nang' || initial === 'picks') {
+    setMobileTab('picks');
+    showPicks();
+  } else if (initial === 'danh-muc') {
     showPortfolio();
   } else if (initial === 'xep-hang') {
     showRankView();
   } else if (initial === 'nganh') {
     showSectors();
-  } else if (/^[A-Za-z0-9]{3,10}$/.test(initial)) {
+  } else if (/^[A-Za-z0-9]{3,8}$/.test(initial) && !['watchlist', 'market', 'picks', 'danh-muc', 'xep-hang', 'nganh'].includes(initial)) {
     analyze(initial.toUpperCase());
   } else {
     showPicks();
   }
 });
+
+// ---------- Mobile Navigation Controller ----------
+let prevMobileTab = 'watchlist';
+function setMobileTab(tab) {
+  if (['watchlist', 'market', 'picks'].includes(document.body.dataset.mobileTab)) {
+    prevMobileTab = document.body.dataset.mobileTab;
+  }
+  document.body.dataset.mobileTab = tab;
+  document.querySelectorAll('.mb-nav-item').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  const sheet = $('mobile-more-sheet');
+  if (sheet) sheet.hidden = true;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function initMobileNav() {
+  document.body.dataset.mobileTab = 'analyze';
+
+  $('mb-nav-analyze')?.addEventListener('click', () => {
+    setMobileTab('analyze');
+    if ($('report') && !$('report').hidden) {
+      // Đang hiển thị báo cáo phân tích
+    } else if (state.current?.symbol) {
+      $('picks').hidden = true;
+      $('sectorview').hidden = true;
+      $('rankview').hidden = true;
+      $('portfolio').hidden = true;
+      $('report').hidden = false;
+    } else {
+      showPicks();
+    }
+  });
+
+  $('mb-nav-watchlist')?.addEventListener('click', () => {
+    setMobileTab('watchlist');
+    renderWatchlist();
+  });
+
+  $('mb-nav-market')?.addEventListener('click', () => {
+    setMobileTab('market');
+    loadMovers();
+  });
+
+  $('mb-nav-picks')?.addEventListener('click', () => {
+    setMobileTab('picks');
+    showPicks();
+  });
+
+  $('mb-nav-more')?.addEventListener('click', () => {
+    const sheet = $('mobile-more-sheet');
+    if (sheet) sheet.hidden = false;
+  });
+
+  $('sheet-close')?.addEventListener('click', () => {
+    const sheet = $('mobile-more-sheet');
+    if (sheet) sheet.hidden = true;
+  });
+
+  $('sheet-backdrop')?.addEventListener('click', () => {
+    const sheet = $('mobile-more-sheet');
+    if (sheet) sheet.hidden = true;
+  });
+
+  $('mb-btn-sector')?.addEventListener('click', () => {
+    const sheet = $('mobile-more-sheet');
+    if (sheet) sheet.hidden = true;
+    setMobileTab('analyze');
+    showSectors();
+  });
+
+  $('mb-btn-rank')?.addEventListener('click', () => {
+    const sheet = $('mobile-more-sheet');
+    if (sheet) sheet.hidden = true;
+    setMobileTab('analyze');
+    showRankView();
+  });
+
+  $('mb-btn-pf')?.addEventListener('click', () => {
+    const sheet = $('mobile-more-sheet');
+    if (sheet) sheet.hidden = true;
+    setMobileTab('analyze');
+    showPortfolio();
+  });
+
+  $('mb-btn-alerts')?.addEventListener('click', () => {
+    const sheet = $('mobile-more-sheet');
+    if (sheet) sheet.hidden = true;
+    const drawer = $('drawer');
+    if (drawer) drawer.hidden = false;
+  });
+
+  $('mb-btn-random')?.addEventListener('click', () => {
+    const sheet = $('mobile-more-sheet');
+    if (sheet) sheet.hidden = true;
+    $('btn-random-stock')?.click();
+  });
+
+  $('mb-btn-ai-check')?.addEventListener('click', () => {
+    const sheet = $('mobile-more-sheet');
+    if (sheet) sheet.hidden = true;
+    $('btn-ai-check')?.click();
+  });
+
+  $('mobile-back-btn')?.addEventListener('click', () => {
+    setMobileTab(prevMobileTab || 'watchlist');
+  });
+}
+
+// Khởi tạo điều hướng Mobile
+initMobileNav();
 
 // Làm mới định kỳ mỗi 2 phút
 setInterval(() => {

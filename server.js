@@ -19,6 +19,15 @@ import { getSectorFlows } from './src/sectors.js';
 import { getChartSeries } from './src/chartdata.js';
 import { startFlowCapture } from './src/orderflow.js';
 import { getForecast } from './src/forecast.js';
+import { telegramConfig, sendReport, buildReport, startTelegramSchedule, sendMessage } from './src/telegram.js';
+import { startSelfReview, runSelfReview, lastReview } from './src/selfreview.js';
+import { getTuning, tuningLog } from './src/tuning.js';
+import { startDbSync, syncAll } from './src/db.js';
+import { startRadar, getRadar, radarTick, RADAR } from './src/radar.js';
+import { startTelegramBot } from './src/telegrambot.js';
+import { startOutlookSchedule, buildOutlook, getOutlook, formatOutlook } from './src/outlook.js';
+import { startIntraday, captureIntraday, INTRADAY_MINUTES } from './src/intraday.js';
+import { startDiagnose, runDiagnosis, lastDiagnosis } from './src/diagnose.js';
 import {
   getWatchlist, addToWatchlist, removeFromWatchlist, scanWatchlist,
   getAlerts, markAlertsRead, startMonitor, runAi, getAiResult, triggerTestAlert,
@@ -154,9 +163,38 @@ const routes = [
   }],
   ['POST', /^\/api\/scan$/, async (req, res) => send(res, 200, await scanWatchlist())],
   ['GET', /^\/api\/alerts$/, async (req, res) => send(res, 200, await getAlerts())],
+  ['GET', /^\/api\/radar$/, async (req, res) => send(res, 200, await getRadar())],
+  ['GET', /^\/api\/diagnostics$/, async (req, res) => send(res, 200, await lastDiagnosis())],
+  ['GET', /^\/api\/outlook$/, async (req, res) => send(res, 200, await getOutlook())],
+  // Phân tích triển vọng tuần ngay và gửi Telegram
+  ['POST', /^\/api\/outlook\/send$/, async (req, res) => {
+    const x = await buildOutlook();
+    if (telegramConfig().enabled) await sendMessage(formatOutlook(x));
+    send(res, 200, x);
+  }],
+  ['POST', /^\/api\/diagnostics\/run$/, async (req, res) => send(res, 200, await runDiagnosis())],
+  // Chụp dữ liệu trong phiên ngay (bỏ qua khung giờ) để kiểm tra
+  ['POST', /^\/api\/intraday\/capture$/, async (req, res) => send(res, 200, { rows: await captureIntraday({ force: true }) })],
+  // Quét radar ngay (bỏ qua khung giờ) để kiểm tra
+  ['POST', /^\/api\/radar\/run$/, async (req, res) => send(res, 200, await radarTick({ force: true }))],
   ['POST', /^\/api\/alerts\/read$/, async (req, res) => {
     await markAlertsRead();
     send(res, 200, { ok: true });
+  }],
+  // Tự đánh giá: kết quả gần nhất + thông số đang dùng (GET), chạy ngay không áp dụng thay đổi (POST)
+  ['GET', /^\/api\/selfreview$/, async (req, res) => send(res, 200, { review: await lastReview(), tuning: getTuning(), log: tuningLog().slice(-20) })],
+  ['POST', /^\/api\/selfreview\/run$/, async (req, res) => send(res, 200, await runSelfReview({ apply: false }))],
+  // Đồng bộ database ngay
+  ['POST', /^\/api\/db\/sync$/, async (req, res) => send(res, 200, await syncAll())],
+  // Bản tin Telegram: xem trước (GET) hoặc gửi ngay (POST), ?kind=open|close
+  ['GET', /^\/api\/telegram\/preview$/, async (req, res) => {
+    const kind = new URL(req.url, 'http://localhost').searchParams.get('kind') === 'open' ? 'open' : 'close';
+    send(res, 200, { kind, ...(await buildReport(kind)) });
+  }],
+  ['POST', /^\/api\/telegram\/send$/, async (req, res) => {
+    if (!telegramConfig().enabled) return send(res, 400, { error: 'Chưa cấu hình TELEGRAM_BOT_TOKEN và TELEGRAM_CHAT_ID trong .env' });
+    const kind = new URL(req.url, 'http://localhost').searchParams.get('kind') === 'open' ? 'open' : 'close';
+    send(res, 200, await sendReport(kind));
   }],
   ['POST', /^\/api\/alerts\/test$/, async (req, res) => {
     const { symbol, message } = await readBody(req);
@@ -195,7 +233,7 @@ const server = createServer(async (req, res) => {
 });
 
 // Chỉ lắng nghe trên máy local
-server.listen(PORT, '127.0.0.1', () => {
+server.listen(PORT, process.env.HOST || '127.0.0.1', () => {
   console.log(`VN Stock Advisor đang chạy tại http://localhost:${PORT}`);
   console.log(`Tự động quét danh mục mỗi ${SCAN_MINUTES} phút trong giờ giao dịch.`);
   const ai = aiConfig();
@@ -203,6 +241,28 @@ server.listen(PORT, '127.0.0.1', () => {
     ? `AI: BẬT — thứ tự dự phòng: ${ai.providers.map((p) => `${p.label} (${p.model})`).join(' → ')}${process.env.GEMINI_AUTO_SCAN === '1' ? ' · tự động phân tích danh mục' : ''}`
     : 'AI: TẮT (thêm GEMINI_API_KEY hoặc MISTRAL_API_KEY… vào file .env để bật)');
   startMonitor(SCAN_MINUTES);
+  // Chép dữ liệu hằng ngày sang PostgreSQL (docker compose up -d) mỗi 10 phút
+  console.log(startDbSync(10)
+    ? 'Database: BẬT — đồng bộ dữ liệu sang PostgreSQL mỗi 10 phút (xem tại http://localhost:8081)'
+    : 'Database: TẮT (chạy `docker compose up -d` và đặt DB_PASSWORD trong .env)');
+  // Sau 15:30 mỗi ngày giao dịch: đối chiếu gợi ý cũ với giá thật, tự chỉnh thông số khi đủ bằng chứng
+  startSelfReview(telegramConfig().enabled ? sendMessage : null);
+  // Bản tin Telegram sau ATO và sau đóng cửa mỗi ngày giao dịch
+  console.log(startTelegramSchedule()
+    ? 'Telegram: BẬT — bản tin ~9:20 và ~15:10 các ngày giao dịch, kèm cảnh báo trong phiên'
+    : 'Telegram: TẮT (thêm TELEGRAM_BOT_TOKEN và TELEGRAM_CHAT_ID vào .env, xem `npm run telegram`)');
+  // Trong phiên: chụp giá toàn rổ + thị trường vào database; sau 15:45: chẩn đoán lại các dự đoán
+  if (startIntraday()) {
+    startDiagnose(telegramConfig().enabled ? sendMessage : null);
+    console.log(`Thu thập trong phiên: BẬT — mỗi ${INTRADAY_MINUTES} phút (9:15–11:30, 13:00–14:45) vào database; chẩn đoán dự đoán mỗi ngày sau 15:45`);
+  }
+  // Triển vọng tuần do AI phân tích: gửi Telegram mỗi thứ 2 từ 8:15
+  if (startOutlookSchedule(telegramConfig().enabled ? sendMessage : null)) console.log('Triển vọng tuần (AI): BẬT — gửi Telegram mỗi thứ 2 từ 8:15');
+  // Nhận lệnh từ Telegram: "mua HPG 1000 25.5 21/10" → ghi vào danh mục
+  if (startTelegramBot()) console.log('Bot Telegram: BẬT — nhắn "mua/bán MÃ SỐ_LƯỢNG GIÁ [NGÀY]" để ghi danh mục, "danh mục", "hoàn tác"');
+  // Quét toàn bộ rổ trong phiên, báo ngay mã nhóm dẫn đầu vừa vào vùng mua (đã qua AI)
+  startRadar();
+  console.log(`Radar cơ hội mua: BẬT — quét toàn rổ mỗi ${RADAR.minutes} phút (9:30–14:30), tối đa ${RADAR.maxDaily} tin/ngày`);
   // Tải trước bảng top cổ phiếu HOSE để lần mở trang đầu không phải chờ
   getMarketMovers('HOSE').catch(() => {});
   // Tính bảng xếp hạng ngay và mỗi 30 phút (đồng thời ghi top 8 vào nhật ký dự đoán)

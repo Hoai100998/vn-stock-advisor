@@ -9,6 +9,8 @@ import { getOrderFlow } from './orderflow.js';
 import { coneSummary } from './forecast.js';
 import { getCompanyProfile } from './company.js';
 import { buildBrief } from './brief.js';
+import { aiFilterNews } from './newsai.js';
+import { checkDataQuality } from './dataquality.js';
 
 const RULE_DIRECTION = { BUY: 1, ACCUMULATE: 1, HOLD: 0, AVOID: -1, SELL: -1 };
 
@@ -50,7 +52,7 @@ export function rankRecommendation(r, { flagged = false, losing = false, liquid 
   } else if (r.score >= 30) {
     rec = { ...REC.HOLD, desc: `Điểm xếp hạng ${r.score} (hạng ${r.position}/${r.universe}): nhóm giữa, chưa có lợi thế rõ so với thị trường.` };
   } else {
-    rec = { ...REC.AVOID, desc: `Điểm xếp hạng ${r.score} (hạng ${r.position}/${r.universe}): nhóm đội sổ về động lượng, xu hướng và độ ổn định.` };
+    rec = { ...REC.AVOID, desc: `Điểm xếp hạng ${r.score} (hạng ${r.position}/${r.universe}): nhóm đội sổ về động lượng, xu hướng và độ ổn định. Khi VN-Index trên MA200, nhóm này kém VN-Index trung bình ~1,4% mỗi 20 phiên (2023–2026); đây là so với thị trường, phiên cả thị trường tăng mạnh mã vẫn có thể tăng.` };
   }
   if (r.score < 30 && (flagged || losing)) rec = { ...REC.SELL, desc: `Nhóm đội sổ (điểm ${r.score}) kèm ${flagged ? 'tin rủi ro nghiêm trọng' : 'doanh nghiệp đang lỗ'}: người đang nắm giữ nên cân nhắc hạ tỷ trọng.` };
   return rec;
@@ -445,10 +447,17 @@ export async function analyzeSymbol(symbol, { withChart = true } = {}) {
   if (bars.length < 30) throw new Error(`Mã ${symbol} có quá ít dữ liệu giá (${bars.length} phiên)`);
 
   const newsDays = isIndex ? 7 : 30;
-  const rawNews = isIndex
+  let rawNews = isIndex
     ? await getMarketNews({ days: newsDays }).catch(() => [])
     : await getStockNews(symbol, { companyName: info?.name, days: newsDays }).catch(() => []);
+  // AI đọc từng tin: bỏ tin không nói về mã này, chấm lại tốt/xấu, xác nhận rủi ro nghiêm trọng
+  const newsFilter = isIndex ? null : await aiFilterNews(rawNews, { symbol, companyName: info?.name }).catch(() => null);
+  if (newsFilter) rawNews = newsFilter.items;
   const newsItems = attachPriceReaction(rawNews, bars);
+  // Dữ liệu có chuẩn không (giá cập nhật, nến tạm, nhảy giá bất thường, số liệu cơ bản cũ)
+  const dataQuality = isIndex ? null : checkDataQuality(bars, {
+    indexDate: indexRes?.bars?.at(-1)?.time, exchange: info?.exchange || 'HOSE', fundReportDate: fund?.reportDate || null,
+  });
 
   const tech = technicalAnalysis(bars, isIndex ? null : market, { indexBars: indexRes?.bars, foreign });
   const ranking = isIndex ? null : await rankSymbol(symbol, bars).catch(() => null);
@@ -466,6 +475,9 @@ export async function analyzeSymbol(symbol, { withChart = true } = {}) {
     });
   } else {
     newsSignals.push({ points: 0, text: `Không tìm thấy tin tức đáng chú ý trong ${newsDays} ngày` });
+  }
+  if (newsFilter?.checked) {
+    newsSignals.push({ points: 0, text: `AI đã đọc ${newsFilter.checked} tin${newsFilter.removed.length ? `, loại ${newsFilter.removed.length} tin không nói về ${symbol}` : ''}${newsFilter.pending ? `; ${newsFilter.pending} tin chưa kịp đọc (chấm theo từ khóa)` : ''}` });
   }
   const categories = summarizeCategories(newsItems);
   // Nêu các nhóm sự kiện có tin rõ chiều (bỏ nhóm "diễn biến giá" vì chỉ mô tả lại giá)
@@ -499,11 +511,13 @@ export async function analyzeSymbol(symbol, { withChart = true } = {}) {
 
   const warnings = [];
   const weekAgo = Date.now() - 7 * 86_400_000;
+  // Tin AI đã đọc: chỉ tính rủi ro khi AI xác nhận; tin chưa đọc: theo từ khóa như trước
   const flagged = newsItems.filter((it) => (it.publishedAt || 0) >= weekAgo
-    && RED_FLAGS.some((k) => it.keywords.includes(k)));
+    && (it.ai ? it.ai.risk : RED_FLAGS.some((k) => it.keywords.includes(k))));
   if (flagged.length) {
-    warnings.push(`Có ${flagged.length} tin rủi ro nghiêm trọng trong 7 ngày (ví dụ: "${flagged[0].title}"). Cần đọc kỹ trước khi quyết định.`);
+    warnings.push(`Có ${flagged.length} tin rủi ro nghiêm trọng trong 7 ngày (ví dụ: "${flagged[0].title}"${flagged[0].ai ? `, AI: ${flagged[0].ai.reason}` : ''}). Cần đọc kỹ trước khi quyết định.`);
   }
+  for (const q of dataQuality?.issues || []) warnings.push(`Dữ liệu: ${q.text}`);
   if (fa.data?.epsTTM != null && fa.data.epsTTM <= 0) warnings.push('Doanh nghiệp đang lỗ trong 4 quý gần nhất.');
   const ind = tech.indicators;
   if (ind.avgVolume20 && ind.avgVolume20 < 100_000 && !isIndex) {
@@ -517,9 +531,13 @@ export async function analyzeSymbol(symbol, { withChart = true } = {}) {
     legacyRec = { ...RECOMMENDATIONS.find((r) => r.code === 'HOLD'), desc: 'Điểm số tích cực nhưng bị hạ xuống THEO DÕI do có tin rủi ro nghiêm trọng.' };
   }
   const value20 = avgTradedValue(bars);
-  const rec = ranking
+  let rec = ranking
     ? rankRecommendation(ranking, { flagged: flagged.length > 0, losing: fa.data?.epsTTM != null && fa.data.epsTTM <= 0, liquid: value20 >= screenCriteria().minValue })
     : legacyRec;
+  // Dữ liệu giá lỗi nghiêm trọng: không khuyến nghị mua dựa trên số liệu đó
+  if (dataQuality?.critical && (rec.code === 'BUY' || rec.code === 'ACCUMULATE')) {
+    rec = { ...RECOMMENDATIONS.find((r) => r.code === 'HOLD'), desc: `Tín hiệu tích cực nhưng dữ liệu chưa chuẩn (${dataQuality.issues.find((x) => x.level === 'critical').text}): chờ dữ liệu cập nhật.` };
+  }
 
   // Độ tin cậy: các nhóm có cùng chiều với tổng điểm hay không
   const available = Object.values(parts).filter((v) => v != null);
@@ -549,7 +567,11 @@ export async function analyzeSymbol(symbol, { withChart = true } = {}) {
     overview: tech.overview,
     foreign: tech.flow ? { ...tech.flow, history: foreign } : null,
     fundamental: fa,
-    news: { ...newsAgg, signals: newsSignals, items: newsItems, categories },
+    news: {
+      ...newsAgg, signals: newsSignals, items: newsItems, categories,
+      aiFilter: newsFilter ? { checked: newsFilter.checked, pending: newsFilter.pending, removed: newsFilter.removed.slice(0, 10).map((x) => ({ title: x.title, reason: x.ai.reason })) } : null,
+    },
+    dataQuality,
     plan: isIndex ? null : tech.plan,
     market,
     // Mua bán toàn sàn HOSE trong phiên gần nhất: độ rộng và khối ngoại

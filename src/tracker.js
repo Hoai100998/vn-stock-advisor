@@ -8,6 +8,7 @@ import { aiAnalyze, aiConfig } from './ai.js';
 import { recordPrediction } from './predictions.js';
 import { finalDecision } from './decision.js';
 import { recordForecast } from './forecast.js';
+import { forwardAlert } from './telegram.js';
 
 const AI_DIRECTION = { MUA: 1, MUA_THAM_DO: 1, GIU: 0, DUNG_NGOAI: -1, BAN_BOT: -1, BAN: -1 };
 
@@ -46,10 +47,18 @@ function save() {
   return saving;
 }
 
-function addAlert(symbol, type, message) {
+function addAlert(symbol, type, message, { forward = true } = {}) {
   state.alerts.unshift({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, time: new Date().toISOString(), symbol, type, message, read: false });
   state.alerts.length = Math.min(state.alerts.length, MAX_ALERTS);
   console.log(`[Cảnh báo] ${symbol}: ${message}`);
+  if (forward) forwardAlert(symbol, message);
+}
+
+/** Ghi cảnh báo từ module khác (vd. radar cơ hội mua) vào danh sách trong app; Telegram do nơi gọi tự gửi. */
+export async function pushAlert(symbol, type, message) {
+  await load();
+  addAlert(symbol, type, message, { forward: false });
+  await save();
 }
 
 export async function getWatchlist() {
@@ -82,7 +91,7 @@ export async function runAi(symbol, { force = false, analysis = null } = {}) {
   }
   state.ai[a.symbol] = result;
   await save();
-  recordForecast(a.symbol, { date: a.price.date, close: a.price.close, forecast: result.forecast }).catch(() => {});
+  recordForecast(a.symbol, { date: a.price.date, close: a.price.close, forecast: result.forecast, cone: a.cone }).catch(() => {});
   if (result.final) {
     const dir = { BUY: 1, ACCUMULATE: 1, HOLD: 0, AVOID: -1, SELL: -1 }[result.final.code];
     recordPrediction({ source: 'final', symbol: a.symbol, date: a.price.date, direction: dir, label: result.final.label, price: a.price.close, detail: result.final.relation });
